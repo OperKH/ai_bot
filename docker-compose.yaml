@@ -1,0 +1,13 @@
+version: '3.8'
+
+name: ai_bot
+
+services:
+  ai_bot:
+    container_name: ai_bot
+    image: ghcr.io/operkh/ai_bot
+    env_file:
+      - .env
+    volumes:
+      - /srv/appdata/ai_bot/data:/app/data
+    restart: always

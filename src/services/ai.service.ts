@@ -1,4 +1,4 @@
-import { env, pipeline } from '@xenova/transformers';
+import { env, pipeline, TextClassificationPipeline, TranslationPipeline } from '@xenova/transformers';
 env.cacheDir = './data/models';
 
 export type TranslatorResponse = {
@@ -33,27 +33,58 @@ export class AIService {
     return AIService.instance;
   }
 
+  private sentimentAnalysisPipeline: Promise<TextClassificationPipeline> | null = null;
+  private toxicAnalysisPipeline: Promise<TextClassificationPipeline> | null = null;
+  private translationPipeline: Promise<TranslationPipeline> | null = null;
+
+  public async dispose() {
+    await Promise.all([
+      this.sentimentAnalysisPipeline?.then((c) => c.dispose()),
+      this.toxicAnalysisPipeline?.then((c) => c.dispose()),
+      this.translationPipeline?.then((c) => c.dispose()),
+    ]);
+  }
+
+  private getSentimentAnalysisPipeline() {
+    if (!this.sentimentAnalysisPipeline) {
+      this.sentimentAnalysisPipeline = pipeline(
+        'sentiment-analysis',
+        'Xenova/distilbert-base-uncased-finetuned-sst-2-english',
+      );
+    }
+    return this.sentimentAnalysisPipeline;
+  }
+  private getToxicAnalysisPipeline() {
+    if (!this.toxicAnalysisPipeline) {
+      this.toxicAnalysisPipeline = pipeline('sentiment-analysis', 'Xenova/toxic-bert');
+    }
+    return this.toxicAnalysisPipeline;
+  }
+  private getTranslationPipeline() {
+    if (!this.translationPipeline) {
+      this.translationPipeline = pipeline('translation', 'Xenova/nllb-200-distilled-600M');
+    }
+    return this.translationPipeline;
+  }
+
   public async sentimentAnalysis(text: string) {
-    const classifier = await pipeline('sentiment-analysis', 'Xenova/distilbert-base-uncased-finetuned-sst-2-english');
+    const classifier = await this.getSentimentAnalysisPipeline();
     const output = await classifier(text);
-    await classifier.dispose();
     console.log('sentimentAnalysis', text, output);
     return output as DistilBertResponse[];
   }
 
   public async toxicAnalysis(text: string) {
-    const classifier = await pipeline('sentiment-analysis', 'Xenova/toxic-bert');
+    const classifier = await this.getToxicAnalysisPipeline();
     const output = await classifier(text, { topk: 6 });
-    await classifier.dispose();
     console.log('toxicAnalysis', text, output);
     return output as ToxicBertResponse[];
   }
 
   public async translate(text: string) {
-    const translator = await pipeline('translation', 'Xenova/nllb-200-distilled-600M');
+    const translator = await this.getTranslationPipeline();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const output = await translator(text, { src_lang: 'rus_Cyrl', tgt_lang: 'eng_Latn' } as any);
-    await translator.dispose();
     console.log('translate', text, output);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const [{ translation_text }] = output as TranslatorResponse[];

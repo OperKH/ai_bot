@@ -12,4 +12,6 @@ export class StartCommand extends Command {
       ctx.reply("Привіт, я поки нічого не вмію, але обов'язково навчуся!");
     });
   }
+
+  async dispose() {}
 }

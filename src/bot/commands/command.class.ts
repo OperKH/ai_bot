@@ -5,4 +5,6 @@ export abstract class Command {
   constructor(public readonly bot: Telegraf<IBotContext>) {}
 
   abstract handle(): void;
+
+  abstract dispose(): Promise<void>;
 }

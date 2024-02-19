@@ -8,7 +8,7 @@ export class Bot {
   private commands: Command[] = [];
 
   constructor(private readonly configService: ConfigService) {
-    this.bot = new Telegraf<IBotContext>(this.configService.get('TOKEN'));
+    this.bot = new Telegraf<IBotContext>(this.configService.get('TOKEN'), { handlerTimeout: Infinity });
     this.bot.use(session());
   }
 

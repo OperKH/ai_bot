@@ -9,6 +9,7 @@ RUN npm run build && npm prune --production
 
 # production-stage
 FROM node:20
+RUN apt -y update && apt install -y --no-install-recommends ffmpeg && apt clean
 ENV NODE_ENV production
 WORKDIR /app
 COPY --from=build-stage /app/package*.json ./

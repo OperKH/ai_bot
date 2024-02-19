@@ -1,4 +1,11 @@
-import { env, pipeline, TextClassificationPipeline, TranslationPipeline } from '@xenova/transformers';
+import {
+  env,
+  pipeline,
+  TextClassificationPipeline,
+  TranslationPipeline,
+  AutomaticSpeechRecognitionPipeline,
+  AudioPipelineInputs,
+} from '@xenova/transformers';
 env.cacheDir = './data/models';
 
 export type TranslatorResponse = {
@@ -36,12 +43,14 @@ export class AIService {
   private sentimentAnalysisPipeline: Promise<TextClassificationPipeline> | null = null;
   private toxicAnalysisPipeline: Promise<TextClassificationPipeline> | null = null;
   private translationPipeline: Promise<TranslationPipeline> | null = null;
+  private automaticSpeechRecognitionPipeline: Promise<AutomaticSpeechRecognitionPipeline> | null = null;
 
   public async dispose() {
     await Promise.all([
       this.sentimentAnalysisPipeline?.then((c) => c.dispose()),
       this.toxicAnalysisPipeline?.then((c) => c.dispose()),
       this.translationPipeline?.then((c) => c.dispose()),
+      this.automaticSpeechRecognitionPipeline?.then((c) => c.dispose()),
     ]);
   }
 
@@ -66,6 +75,12 @@ export class AIService {
     }
     return this.translationPipeline;
   }
+  private getAutomaticSpeechRecognitionPipeline() {
+    if (!this.automaticSpeechRecognitionPipeline) {
+      this.automaticSpeechRecognitionPipeline = pipeline('automatic-speech-recognition', 'Xenova/whisper-large-v3');
+    }
+    return this.automaticSpeechRecognitionPipeline;
+  }
 
   public async sentimentAnalysis(text: string) {
     const classifier = await this.getSentimentAnalysisPipeline();
@@ -89,6 +104,14 @@ export class AIService {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const [{ translation_text }] = output as TranslatorResponse[];
     return translation_text;
+  }
+
+  async audio2text(audio: AudioPipelineInputs): Promise<string> {
+    const transcriber = await this.getAutomaticSpeechRecognitionPipeline();
+    const output = await transcriber(audio, { task: 'transcribe', chunk_length_s: 30, stride_length_s: 5 });
+    console.log(output);
+    const { text } = output as WhisperResponse;
+    return text;
   }
 
   async isTextToxic(text: string): Promise<boolean> {

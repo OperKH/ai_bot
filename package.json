@@ -13,9 +13,12 @@
   "dependencies": {
     "@xenova/transformers": "^2.15.0",
     "dotenv": "^16.4.4",
-    "telegraf": "github:telegraf/telegraf#feat/api-7.0"
+    "fluent-ffmpeg": "^2.1.2",
+    "telegraf": "github:telegraf/telegraf#feat/api-7.0",
+    "wavefile": "^11.0.0"
   },
   "devDependencies": {
+    "@types/fluent-ffmpeg": "^2.1.24",
     "@types/node": "^20.11.19",
     "@typescript-eslint/eslint-plugin": "^7.0.1",
     "@typescript-eslint/parser": "^7.0.1",

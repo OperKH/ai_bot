@@ -1,16 +1,12 @@
+import googleTranslate from '@iamtraction/google-translate';
 import {
   env,
   pipeline,
   TextClassificationPipeline,
-  TranslationPipeline,
   AutomaticSpeechRecognitionPipeline,
   AudioPipelineInputs,
 } from '@xenova/transformers';
 env.cacheDir = './data/models';
-
-export type TranslatorResponse = {
-  translation_text: string;
-};
 
 export type DistilBertLabel = 'NEGATIVE' | 'POSITIVE';
 
@@ -42,14 +38,12 @@ export class AIService {
 
   private sentimentAnalysisPipeline: Promise<TextClassificationPipeline> | null = null;
   private toxicAnalysisPipeline: Promise<TextClassificationPipeline> | null = null;
-  private translationPipeline: Promise<TranslationPipeline> | null = null;
   private automaticSpeechRecognitionPipeline: Promise<AutomaticSpeechRecognitionPipeline> | null = null;
 
   public async dispose() {
     await Promise.all([
       this.sentimentAnalysisPipeline?.then((c) => c.dispose()),
       this.toxicAnalysisPipeline?.then((c) => c.dispose()),
-      this.translationPipeline?.then((c) => c.dispose()),
       this.automaticSpeechRecognitionPipeline?.then((c) => c.dispose()),
     ]);
   }
@@ -68,12 +62,6 @@ export class AIService {
       this.toxicAnalysisPipeline = pipeline('sentiment-analysis', 'Xenova/toxic-bert');
     }
     return this.toxicAnalysisPipeline;
-  }
-  private getTranslationPipeline() {
-    if (!this.translationPipeline) {
-      this.translationPipeline = pipeline('translation', 'Xenova/nllb-200-distilled-600M');
-    }
-    return this.translationPipeline;
   }
   private getAutomaticSpeechRecognitionPipeline() {
     if (!this.automaticSpeechRecognitionPipeline) {
@@ -96,16 +84,6 @@ export class AIService {
     return output as ToxicBertResponse[];
   }
 
-  public async translate(text: string) {
-    const translator = await this.getTranslationPipeline();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const output = await translator(text, { src_lang: 'rus_Cyrl', tgt_lang: 'eng_Latn' } as any);
-    console.log('translate', text, output);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const [{ translation_text }] = output as TranslatorResponse[];
-    return translation_text;
-  }
-
   async audio2text(audio: AudioPipelineInputs): Promise<string> {
     const transcriber = await this.getAutomaticSpeechRecognitionPipeline();
     const output = await transcriber(audio, { task: 'transcribe', chunk_length_s: 30, stride_length_s: 5 });
@@ -116,13 +94,15 @@ export class AIService {
 
   async isTextToxic(text: string): Promise<boolean> {
     const toxicThreshold = 0.7;
-    const engText = await this.translate(text);
+    const { text: engText } = await googleTranslate(text);
+    console.log('googleTranslate', '|', text, '|', engText);
     const toxicResult = await this.toxicAnalysis(engText);
     return !!toxicResult.find(({ score }) => score > toxicThreshold);
   }
 
   async getMaxToxicScore(text: string): Promise<number> {
-    const engText = await this.translate(text);
+    const { text: engText } = await googleTranslate(text);
+    console.log('googleTranslate', '|', text, '|', engText);
     const [{ score }] = await this.toxicAnalysis(engText);
     return score;
   }

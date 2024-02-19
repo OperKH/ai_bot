@@ -3,7 +3,8 @@ import path from 'node:path';
 import https from 'node:https';
 import ffmpeg from 'fluent-ffmpeg';
 import wavefile from 'wavefile';
-import { Telegraf } from 'telegraf';
+import { Telegraf, NarrowedContext } from 'telegraf';
+import { Message, Update } from 'telegraf/types';
 import { message } from 'telegraf/filters';
 
 import { Command } from './command.class.js';
@@ -19,14 +20,24 @@ export class RecognizeSpeechCommand extends Command {
 
   handle(): void {
     this.bot.on(message('voice'), async (ctx) => {
-      const text = await this.extractText(ctx.message.voice.file_id, 'ogg');
-      ctx.reply(text, { reply_parameters: { message_id: ctx.message.message_id } });
+      await this.messageHandler(ctx, ctx.message.voice.file_id, 'ogg');
     });
 
     this.bot.on(message('video_note'), async (ctx) => {
-      const text = await this.extractText(ctx.message.video_note.file_id, 'mp4');
-      ctx.reply(text, { reply_parameters: { message_id: ctx.message.message_id } });
+      await this.messageHandler(ctx, ctx.message.video_note.file_id, 'mp4');
     });
+  }
+
+  private async messageHandler(
+    ctx: NarrowedContext<IBotContext, Update.MessageUpdate<Message>>,
+    fileId: string,
+    fileExt: string,
+  ) {
+    const replyMessage = await ctx.reply('💬', {
+      reply_parameters: { message_id: ctx.message.message_id },
+    });
+    const text = await this.extractText(fileId, fileExt);
+    ctx.telegram.editMessageText(ctx.chat.id, replyMessage.message_id, undefined, text);
   }
 
   private async extractText(fileId: string, fileExt: string) {
@@ -62,10 +73,11 @@ export class RecognizeSpeechCommand extends Command {
       const wavBuffer = await fs.promises.readFile(wavFilePath);
       const wav = new wavefile.WaveFile(wavBuffer);
       const audioData = wav.getSamples();
-      resultText = await this.aiService.audio2text(audioData);
+      const text = await this.aiService.audio2text(audioData);
+      resultText = `📝 ${text.trim()}`;
     } catch (e) {
       console.log(e);
-      resultText = 'Помилка';
+      resultText = '📛 Помилка';
     } finally {
       await Promise.allSettled([fs.promises.rm(srcFilePath), fs.promises.rm(wavFilePath)]);
     }

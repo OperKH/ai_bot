@@ -1,16 +1,12 @@
-import { Telegraf } from 'telegraf';
 import { message } from 'telegraf/filters';
 
 import { Command } from './command.class.js';
-import { IBotContext } from '../context/context.interface.js';
 import { AIService } from '../../services/ai.service.js';
 
 export class ClassifyMessageCommand extends Command {
+  public command = null;
+  public description = null;
   private aiService = AIService.getInstance();
-
-  constructor(bot: Telegraf<IBotContext>) {
-    super(bot);
-  }
 
   handle(): void {
     this.bot.on(message('text'), async (ctx) => {

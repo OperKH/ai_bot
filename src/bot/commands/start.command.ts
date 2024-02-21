@@ -1,15 +1,14 @@
-import { Telegraf } from 'telegraf';
 import { Command } from './command.class.js';
-import { IBotContext } from '../context/context.interface.js';
 
 export class StartCommand extends Command {
-  constructor(bot: Telegraf<IBotContext>) {
-    super(bot);
-  }
+  public command = 'start';
+  public description = '👋 Привітатися';
 
   handle(): void {
     this.bot.start((ctx) => {
-      ctx.reply("Привіт, я поки нічого не вмію, але обов'язково навчуся!");
+      ctx.reply(
+        'Привіт, я вмію розпізнавати мову і представляти її у вигляді тексту, погано реагую на грубу мову і незабаром навчуся взаємодіяти з картинками.',
+      );
     });
   }
 

@@ -1,4 +1,5 @@
 import { session, Telegraf } from 'telegraf';
+import { BotCommand } from 'telegraf/types';
 import { Command } from './commands/command.class.js';
 import { IBotContext } from './context/context.interface.js';
 import { ConfigService } from '../config/config.service.js';
@@ -13,11 +14,17 @@ export class Bot {
   }
 
   registerCommands(commands: Array<{ new (bot: Telegraf<IBotContext>): Command }>) {
+    const botCommands: BotCommand[] = [];
     for (const Command of commands) {
-      const command = new Command(this.bot);
-      this.commands.push(command);
-      command.handle();
+      const commandEntity = new Command(this.bot);
+      commandEntity.handle();
+      this.commands.push(commandEntity);
+      const { command, description } = commandEntity;
+      if (command && description) {
+        botCommands.push({ command, description });
+      }
     }
+    this.bot.telegram.setMyCommands(botCommands);
   }
 
   start() {

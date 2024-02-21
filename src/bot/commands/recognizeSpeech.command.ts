@@ -3,7 +3,7 @@ import path from 'node:path';
 import https from 'node:https';
 import ffmpeg from 'fluent-ffmpeg';
 import wavefile from 'wavefile';
-import { Telegraf, NarrowedContext } from 'telegraf';
+import { NarrowedContext } from 'telegraf';
 import { Message, Update } from 'telegraf/types';
 import { message } from 'telegraf/filters';
 
@@ -12,11 +12,9 @@ import { IBotContext } from '../context/context.interface.js';
 import { AIService } from '../../services/ai.service.js';
 
 export class RecognizeSpeechCommand extends Command {
+  public command = null;
+  public description = null;
   private aiService = AIService.getInstance();
-
-  constructor(bot: Telegraf<IBotContext>) {
-    super(bot);
-  }
 
   handle(): void {
     this.bot.on(message('voice'), async (ctx) => {

@@ -79,15 +79,19 @@ export class AIService {
 
   public async toxicAnalysis(text: string) {
     const classifier = await this.getToxicAnalysisPipeline();
+    const t1 = performance.now();
     const output = await classifier(text, { topk: 6 });
-    console.log('toxicAnalysis', text, output);
+    const t2 = performance.now();
+    console.log(`toxicAnalysis(${Math.round(t2 - t1)} ms)`, text, output);
     return output as ToxicBertResponse[];
   }
 
   async audio2text(audio: AudioPipelineInputs): Promise<string> {
     const transcriber = await this.getAutomaticSpeechRecognitionPipeline();
+    const t1 = performance.now();
     const output = await transcriber(audio, { task: 'transcribe', chunk_length_s: 30, stride_length_s: 5 });
-    console.log(output);
+    const t2 = performance.now();
+    console.log(`transcribe(${Math.round(t2 - t1)} ms)`, output);
     const { text } = output as WhisperResponse;
     return text;
   }
@@ -101,8 +105,10 @@ export class AIService {
   }
 
   async getMaxToxicScore(text: string): Promise<number> {
+    const t1 = performance.now();
     const { text: engText } = await googleTranslate(text);
-    console.log('googleTranslate', '|', text, '|', engText);
+    const t2 = performance.now();
+    console.log(`googleTranslate(${Math.round(t2 - t1)} ms)`, '|', text, '|', engText);
     const [{ score }] = await this.toxicAnalysis(engText);
     return score;
   }

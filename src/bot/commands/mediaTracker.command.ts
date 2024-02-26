@@ -16,6 +16,7 @@ export class MediaTrackerCommand extends Command {
   private fileService = FileService.getInstance();
   private tgClient: TelegramClient | null = null;
   private similarFoundVariants = ['ось тут', 'ще тут', 'і ось', 'навіть це', 'і оце щось схоже'];
+  private isMediaImporting = false;
 
   handle(): void {
     this.bot.on(message('photo'), async (ctx) => {
@@ -35,38 +36,23 @@ export class MediaTrackerCommand extends Command {
         reply_parameters: { message_id: ctx.message.message_id },
       });
     });
+    this.bot.command('starthistoryimport', async (ctx) => {
+      this.startHistoryImport(ctx);
+    });
   }
 
   private async messageHandler(ctx: NarrowedContext<IBotContext, Update.MessageUpdate<Message>>, fileId: string) {
+    if (this.isMediaImporting) return;
     const chatId = ctx.chat.id;
     const messageId = ctx.message.message_id;
-    const chatStateRepository = this.dataSource.getRepository(ChatState);
-    const chatPhotoMessageRepository = this.dataSource.getRepository(ChatPhotoMessage);
-
     try {
-      // Check media import is done
-      const chatState = await chatStateRepository.findOneBy({ chatId: String(chatId) });
-      const isMediaImported = chatState?.isMediaImported ?? false;
-      if (!isMediaImported) {
-        const [latestChatPhotoMessage] = await chatPhotoMessageRepository.find({
-          where: { chatId: String(chatId) },
-          order: { messageId: 'DESC' },
-          take: 1,
-        });
-        const lastImportedMessageId = latestChatPhotoMessage ? Number(latestChatPhotoMessage.messageId) : 0;
-        const lastMessageId = messageId;
-        await this.importChatMessages(chatId, lastImportedMessageId, lastMessageId);
-        // Save to DB
-        const chatState = new ChatState();
-        chatState.chatId = String(chatId);
-        (chatState.isMediaImported = true), await chatStateRepository.save(chatState);
-      }
       // DB similarity search
       const imageEmbeddingString = await this.getEmbeddingStringByImageFileId(fileId);
       type Messages = {
         messageId: string;
         similarity: number;
       };
+      const chatPhotoMessageRepository = this.dataSource.getRepository(ChatPhotoMessage);
       const messages = await chatPhotoMessageRepository
         .createQueryBuilder('msg')
         .select('msg.messageId', 'messageId')
@@ -107,6 +93,56 @@ export class MediaTrackerCommand extends Command {
     }
   }
 
+  private async startHistoryImport(ctx: NarrowedContext<IBotContext, Update.MessageUpdate<Message>>) {
+    const messageId = ctx.message.message_id;
+    if (this.isMediaImporting) {
+      await ctx.reply('😡 Я тут працюю, тужуся, а ти відволікаєш', {
+        reply_parameters: { message_id: messageId },
+      });
+      return;
+    }
+    this.isMediaImporting = true;
+    try {
+      const chatId = ctx.chat.id;
+      const chatStateRepository = this.dataSource.getRepository(ChatState);
+      const chatState = await chatStateRepository.findOneBy({ chatId: String(chatId) });
+      const isMediaImported = chatState?.isMediaImported ?? false;
+      if (isMediaImported) {
+        await ctx.reply('🍧 Нема потреби. Усе же зроблено.', {
+          reply_parameters: { message_id: messageId },
+        });
+      } else {
+        await ctx.reply('🏃 Взяв у роботу!', {
+          reply_parameters: { message_id: messageId },
+        });
+
+        const chatPhotoMessageRepository = this.dataSource.getRepository(ChatPhotoMessage);
+        const [latestChatPhotoMessage] = await chatPhotoMessageRepository.find({
+          where: { chatId: String(chatId) },
+          order: { messageId: 'DESC' },
+          take: 1,
+        });
+        const lastImportedMessageId = latestChatPhotoMessage ? Number(latestChatPhotoMessage.messageId) : 0;
+        await this.importChatMessages(chatId, lastImportedMessageId, messageId);
+        // Save to DB
+        const chatState = new ChatState();
+        chatState.chatId = String(chatId);
+        (chatState.isMediaImported = true), await chatStateRepository.save(chatState);
+
+        await ctx.reply('😮‍💨 Фух... Усе підтягнув!', {
+          reply_parameters: { message_id: messageId },
+        });
+      }
+    } catch (e) {
+      console.log(e);
+      await ctx.reply('📛 Халепа', {
+        reply_parameters: { message_id: messageId },
+      });
+    } finally {
+      this.isMediaImporting = false;
+    }
+  }
+
   private async getEmbeddingStringByImageFileId(fileId: string) {
     const fileUrl = await this.bot.telegram.getFileLink(fileId);
     const imageBuffer = await this.fileService.getBufferByUrl(fileUrl);
@@ -132,20 +168,20 @@ export class MediaTrackerCommand extends Command {
       reverse: true,
       filter: new Api.InputMessagesFilterPhotoVideo(),
     })) {
-      if (message.id < lastMessageId) {
-        const t1 = performance.now();
-        let fleLocation: Api.InputPhotoFileLocation | Api.InputDocumentFileLocation | null = null;
-        if (message.video) {
-          const { id, fileReference, accessHash } = message.video;
-          const thumbSize = message.video.thumbs?.findLast(({ className }) => className === 'PhotoSize')?.type ?? 'm';
-          fleLocation = new Api.InputDocumentFileLocation({ id, fileReference, accessHash, thumbSize });
-        } else if (message.photo) {
-          const photo = message.photo as Api.Photo;
-          const { id, fileReference, accessHash } = photo;
-          const thumbSize = photo.sizes.at(-1)?.type ?? 'm';
-          fleLocation = new Api.InputPhotoFileLocation({ id, fileReference, accessHash, thumbSize });
-        }
-        if (fleLocation) {
+      const t1 = performance.now();
+      let fleLocation: Api.InputPhotoFileLocation | Api.InputDocumentFileLocation | null = null;
+      if (message.video) {
+        const { id, fileReference, accessHash } = message.video;
+        const thumbSize = message.video.thumbs?.findLast(({ className }) => className === 'PhotoSize')?.type ?? 'm';
+        fleLocation = new Api.InputDocumentFileLocation({ id, fileReference, accessHash, thumbSize });
+      } else if (message.photo) {
+        const photo = message.photo as Api.Photo;
+        const { id, fileReference, accessHash } = photo;
+        const thumbSize = photo.sizes.at(-1)?.type ?? 'm';
+        fleLocation = new Api.InputPhotoFileLocation({ id, fileReference, accessHash, thumbSize });
+      }
+      if (fleLocation) {
+        try {
           const imageBuffer = await this.tgClient.downloadFile(fleLocation);
           if (imageBuffer instanceof Buffer) {
             // Get image embedding
@@ -160,8 +196,12 @@ export class MediaTrackerCommand extends Command {
             await this.dataSource.manager.save(chatPhotoMessage);
             // Logging
             const t2 = performance.now();
-            console.log(`Imported message ${message.id}/${lastMessageId - 1} (${Math.round(t2 - t1)} ms)`);
+            console.log(
+              `Imported message ${message.id}/${lastMessageId} ${Math.round((message.id / lastMessageId) * 1e4) / 1e2}% (${Math.round(t2 - t1)} ms)`,
+            );
           }
+        } catch (e) {
+          console.log(chatId, message.id, message.video || message.photo, fleLocation, e);
         }
       }
     }

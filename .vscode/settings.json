@@ -4,8 +4,8 @@
   "editor.renderControlCharacters": true,
   "explorer.fileNesting.enabled": true,
   "explorer.fileNesting.patterns": {
-    "Dockerfile": ".dockerignore, docker-compose.yaml",
-    "package.json": ".editorconfig, .env*, .git*, .prettierrc, package-lock.json, tsconfig.json"
+    "Dockerfile": ".dockerignore, docker-compose.yaml, docker-compose.override.yml",
+    "package.json": ".editorconfig, .env*, .git*, .prettierignore, .prettierrc, package-lock.json, tsconfig.json, tsconfig.release.json"
   },
   "[javascript]": {
     "editor.defaultFormatter": "esbenp.prettier-vscode"
@@ -18,5 +18,5 @@
   },
   "typescript.tsdk": "node_modules/typescript/lib",
   "cSpell.language": "en,uk",
-  "cSpell.words": ["Xenova"]
+  "cSpell.words": ["typeorm", "Xenova"]
 }

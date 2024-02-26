@@ -1,11 +1,20 @@
-import { Bot } from './bot/bot.class.js';
-import { StartCommand, ClassifyMessageCommand, RecognizeSpeechCommand, ClockCommand } from './bot/commands/index.js';
+import dataSource from './dataSource/dataSource.js';
 import { ConfigService } from './config/config.service.js';
+import { Bot } from './bot/bot.class.js';
+import {
+  StartCommand,
+  ClassifyMessageCommand,
+  MediaTrackerCommand,
+  RecognizeSpeechCommand,
+} from './bot/commands/index.js';
 
-const configService = new ConfigService();
-const bot = new Bot(configService);
+const configService = ConfigService.getInstance();
 
-bot.registerCommands([StartCommand, ClockCommand, ClassifyMessageCommand, RecognizeSpeechCommand]);
+await dataSource.initialize();
+
+const bot = new Bot(configService, dataSource);
+
+bot.registerCommands([StartCommand, MediaTrackerCommand, ClassifyMessageCommand, RecognizeSpeechCommand]);
 bot.start();
 
 // Enable graceful stop

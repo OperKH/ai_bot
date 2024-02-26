@@ -10,4 +10,17 @@ services:
       - .env
     volumes:
       - /srv/appdata/ai_bot/data:/app/data
+    depends_on:
+      - postgres
+    restart: always
+
+  postgres:
+    container_name: ai_bot_postgres
+    image: tensorchord/pgvecto-rs:pg16-v0.2.0
+    environment:
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USERNAME}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - /srv/appdata/ai_bot/postgresql:/var/lib/postgresql/data
     restart: always

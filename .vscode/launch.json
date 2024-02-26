@@ -6,13 +6,7 @@
       "name": "Launch",
       "type": "node",
       "request": "launch",
-      "program": "src/app.ts",
-
-      /*
-      Path to tsx binary
-      Assuming locally installed
-      */
-      "runtimeExecutable": "${workspaceRoot}/node_modules/.bin/tsx",
+      "program": "dist/app.js",
 
       /*
       Open terminal when debugging starts (Optional)

@@ -5,7 +5,7 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm ci
 COPY . .
-RUN npm run build && npm prune --production
+RUN npm run build:release && npm prune --production
 
 # production-stage
 FROM node:20

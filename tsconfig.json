@@ -12,11 +12,16 @@
     "noFallthroughCasesInSwitch": true,
     "resolveJsonModule": true,
     "isolatedModules": true,
-    "noEmit": true,
+    "sourceMap": true,
+    "incremental": true,
+    "noImplicitReturns": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "emitDecoratorMetadata": true,
+    "experimentalDecorators": true,
     "baseUrl": ".",
     "outDir": "dist",
     "lib": ["esnext"]
   },
-  "include": ["src/*.ts"],
-  "exclude": ["src/utils/*"]
+  "include": ["src/**/*"]
 }

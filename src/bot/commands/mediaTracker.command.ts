@@ -52,6 +52,7 @@ export class MediaTrackerCommand extends Command {
         similarity: number;
       };
       const chatPhotoMessageRepository = this.dataSource.getRepository(ChatPhotoMessage);
+      const t1 = performance.now();
       const messages = await chatPhotoMessageRepository
         .createQueryBuilder('msg')
         .select('msg.messageId', 'messageId')
@@ -66,6 +67,8 @@ export class MediaTrackerCommand extends Command {
           matchImageThreshold: this.configService.get('MATCH_IMAGE_THRESHOLD'),
         })
         .getRawMany<Messages>();
+      const t2 = performance.now();
+      console.log(`DB query time: ${Math.round(t2 - t1)} ms`);
       // When similar
       if (messages.length > 0) {
         await ctx.reply('🕵️‍♀️ Здається, я це вже десь бачив...', {
@@ -110,6 +113,7 @@ export class MediaTrackerCommand extends Command {
         similarity: number;
       };
       const chatPhotoMessageRepository = this.dataSource.getRepository(ChatPhotoMessage);
+      const t1 = performance.now();
       const messages = await chatPhotoMessageRepository
         .createQueryBuilder('msg')
         .select('msg.messageId', 'messageId')
@@ -124,6 +128,8 @@ export class MediaTrackerCommand extends Command {
           matchImageThreshold: this.configService.get('MATCH_TEXT_THRESHOLD'),
         })
         .getRawMany<Messages>();
+      const t2 = performance.now();
+      console.log(`DB query time: ${Math.round(t2 - t1)} ms`);
       // When similar
       if (messages.length > 0) {
         await ctx.reply('🔎 Ось, що мені вдалось знайти:', {

@@ -118,18 +118,26 @@ export class AIService {
     return new RawImage(new Uint8ClampedArray(data), info.width, info.height, info.channels);
   }
 
-  async getTextClipEmbedding(text: string): Promise<number[]> {
-    const tokenizer = await this.getClipTokenizer();
-    const text_model = await this.getClipTextModel();
+  async getEnglishTranslation(text: string) {
+    const isEnglish = /^[a-zA-Z\s\d!"#№$%&'()*+,\-./:;<=>?@[\\\]^_`{|}~]+$/.test(text);
+    if (isEnglish) return text;
     const t1 = performance.now();
     const { text: engText } = await googleTranslate(text);
     const t2 = performance.now();
     console.log(`googleTranslate(${Math.round(t2 - t1)} ms)`, '|', text, '|', engText);
+    return engText;
+  }
+
+  async getTextClipEmbedding(text: string): Promise<number[]> {
+    const tokenizer = await this.getClipTokenizer();
+    const text_model = await this.getClipTextModel();
+    const engText = await this.getEnglishTranslation(text);
+    const t1 = performance.now();
     const textInputs = tokenizer(engText, { padding: true, truncation: true });
     const { text_embeds } = await text_model(textInputs);
     const textEmbedding = text_embeds.tolist()[0] as number[];
-    const t3 = performance.now();
-    console.log(`textEmbedding(${Math.round(t3 - t2)} ms)`);
+    const t2 = performance.now();
+    console.log(`textEmbedding(${Math.round(t2 - t1)} ms)`);
     return textEmbedding;
   }
 
@@ -174,17 +182,13 @@ export class AIService {
 
   async isTextToxic(text: string): Promise<boolean> {
     const toxicThreshold = 0.7;
-    const { text: engText } = await googleTranslate(text);
-    console.log('googleTranslate', '|', text, '|', engText);
+    const engText = await this.getEnglishTranslation(text);
     const toxicResult = await this.toxicAnalysis(engText);
     return !!toxicResult.find(({ score }) => score > toxicThreshold);
   }
 
   async getMaxToxicScore(text: string): Promise<number> {
-    const t1 = performance.now();
-    const { text: engText } = await googleTranslate(text);
-    const t2 = performance.now();
-    console.log(`googleTranslate(${Math.round(t2 - t1)} ms)`, '|', text, '|', engText);
+    const engText = await this.getEnglishTranslation(text);
     const [{ score }] = await this.toxicAnalysis(engText);
     return score;
   }

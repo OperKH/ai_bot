@@ -78,7 +78,8 @@ export class MediaTrackerCommand extends Command {
         for (const { messageId, similarity } of messages) {
           const variantNumber = replyMessageCount++ % this.similarFoundVariants.length;
           await ctx.reply(`${this.similarFoundVariants[variantNumber]} (${Math.round(similarity * 1e4) / 1e2}%)`, {
-            reply_parameters: { message_id: Number(messageId) },
+            reply_parameters: { message_id: Number(messageId), allow_sending_without_reply: true },
+            disable_notification: true,
           });
           // Wait 300ms before send next message
           await new Promise((r) => setTimeout(r, 300));
@@ -137,11 +138,12 @@ export class MediaTrackerCommand extends Command {
         });
         for (const { messageId, similarity } of messages) {
           try {
-            await ctx.reply(similarity.toPrecision(4), {
-              reply_parameters: { message_id: Number(messageId) },
+            await ctx.reply(`${ctx.payload} (${similarity.toPrecision(4)})`, {
+              reply_parameters: { message_id: Number(messageId), allow_sending_without_reply: true },
+              disable_notification: true,
             });
           } catch (e) {
-            console.log(e);
+            console.log(`messageId: ${messageId}`, e);
           }
           // Wait 300ms before send next message
           await new Promise((r) => setTimeout(r, 300));

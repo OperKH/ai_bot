@@ -1,5 +1,6 @@
-import { NarrowedContext } from 'telegraf';
+import { Context, NarrowedContext } from 'telegraf';
 import { Message, Update } from 'telegraf/types';
+import { CommandContextExtn } from 'node_modules/telegraf/typings/telegram-types.js';
 import { message } from 'telegraf/filters';
 import { TelegramClient, Api } from 'telegram';
 import { StringSession } from 'telegram/sessions/index.js';
@@ -32,9 +33,7 @@ export class MediaTrackerCommand extends Command {
       }
     });
     this.bot.command(this.command, async (ctx) => {
-      await ctx.reply('👾 Поки що в розробці.', {
-        reply_parameters: { message_id: ctx.message.message_id },
-      });
+      await this.searchHandler(ctx);
     });
     this.bot.command('starthistoryimport', async (ctx) => {
       this.startHistoryImport(ctx);
@@ -69,7 +68,7 @@ export class MediaTrackerCommand extends Command {
         .getRawMany<Messages>();
       // When similar
       if (messages.length > 0) {
-        await ctx.reply('Здається, я це вже десь бачив...', {
+        await ctx.reply('🕵️‍♀️ Здається, я це вже десь бачив...', {
           reply_parameters: { message_id: messageId },
         });
         let replyMessageCount = 0;
@@ -93,10 +92,70 @@ export class MediaTrackerCommand extends Command {
     }
   }
 
+  private async searchHandler(
+    ctx: Context<{
+      message: Update.New & Update.NonChannel & Message.TextMessage;
+      update_id: number;
+    }> &
+      Omit<IBotContext, keyof Context<Update>> &
+      CommandContextExtn,
+  ) {
+    if (ctx.payload) {
+      const chatId = ctx.chat.id;
+      const messageId = ctx.message.message_id;
+      const textEmbedding = await this.aiService.getTextClipEmbedding(ctx.payload);
+      const textEmbeddingString = JSON.stringify(textEmbedding);
+      type Messages = {
+        messageId: string;
+        similarity: number;
+      };
+      const chatPhotoMessageRepository = this.dataSource.getRepository(ChatPhotoMessage);
+      const messages = await chatPhotoMessageRepository
+        .createQueryBuilder('msg')
+        .select('msg.messageId', 'messageId')
+        .addSelect('1 - (embedding <=> :embedding)', 'similarity')
+        .where('msg.chatId = :chatId')
+        .andWhere('1 - (embedding <=> :embedding) > :matchImageThreshold')
+        .orderBy('similarity', 'DESC')
+        .limit(this.configService.get('MATCH_IMAGE_COUNT'))
+        .setParameters({
+          chatId,
+          embedding: textEmbeddingString,
+          matchImageThreshold: this.configService.get('MATCH_TEXT_THRESHOLD'),
+        })
+        .getRawMany<Messages>();
+      // When similar
+      if (messages.length > 0) {
+        await ctx.reply('🔎 Ось, що мені вдалось знайти:', {
+          reply_parameters: { message_id: messageId },
+        });
+        for (const { messageId, similarity } of messages) {
+          try {
+            await ctx.reply(similarity.toPrecision(4), {
+              reply_parameters: { message_id: Number(messageId) },
+            });
+          } catch (e) {
+            console.log(e);
+          }
+          // Wait 300ms before send next message
+          await new Promise((r) => setTimeout(r, 300));
+        }
+      } else {
+        await ctx.reply('🤷‍♂️ Нічого нема.', {
+          reply_parameters: { message_id: messageId },
+        });
+      }
+    } else {
+      await ctx.reply(`ℹ️ Додай пошуковий запит після команди, наприклад: /${this.command} ігрова консоль`, {
+        reply_parameters: { message_id: ctx.message.message_id },
+      });
+    }
+  }
+
   private async startHistoryImport(ctx: NarrowedContext<IBotContext, Update.MessageUpdate<Message>>) {
     const messageId = ctx.message.message_id;
     if (this.isMediaImporting) {
-      await ctx.reply('😡 Я тут працюю, тужуся, а ти відволікаєш', {
+      await ctx.reply('😡 Я тут працюю, тужуся, а ти відволікаєш.', {
         reply_parameters: { message_id: messageId },
       });
       return;
@@ -135,7 +194,7 @@ export class MediaTrackerCommand extends Command {
       }
     } catch (e) {
       console.log(e);
-      await ctx.reply('📛 Халепа', {
+      await ctx.reply('📛 Халепа!', {
         reply_parameters: { message_id: messageId },
       });
     } finally {

@@ -121,9 +121,15 @@ export class AIService {
   async getTextClipEmbedding(text: string): Promise<number[]> {
     const tokenizer = await this.getClipTokenizer();
     const text_model = await this.getClipTextModel();
-    const textInputs = tokenizer(text, { padding: true, truncation: true });
+    const t1 = performance.now();
+    const { text: engText } = await googleTranslate(text);
+    const t2 = performance.now();
+    console.log(`googleTranslate(${Math.round(t2 - t1)} ms)`, '|', text, '|', engText);
+    const textInputs = tokenizer(engText, { padding: true, truncation: true });
     const { text_embeds } = await text_model(textInputs);
     const textEmbedding = text_embeds.tolist()[0] as number[];
+    const t3 = performance.now();
+    console.log(`textEmbedding(${Math.round(t3 - t2)} ms)`);
     return textEmbedding;
   }
 

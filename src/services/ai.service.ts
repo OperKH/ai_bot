@@ -105,7 +105,7 @@ export class AIService {
   }
   private getToxicAnalysisPipeline() {
     if (!this.toxicAnalysisPipeline) {
-      this.toxicAnalysisPipeline = pipeline('sentiment-analysis', 'Xenova/toxic-bert');
+      this.toxicAnalysisPipeline = pipeline('text-classification', 'Xenova/toxic-bert');
     }
     return this.toxicAnalysisPipeline;
   }
@@ -136,9 +136,12 @@ export class AIService {
     return new RawImage(new Uint8ClampedArray(data), info.width, info.height, info.channels);
   }
 
+  isEnglish(text: string) {
+    return /^[a-zA-Z\s\d!"#№$%&'()*+,\-./:;<=>?@[\\\]^_`{|}~]+$/.test(text);
+  }
+
   async getEnglishTranslation(text: string) {
-    const isEnglish = /^[a-zA-Z\s\d!"#№$%&'()*+,\-./:;<=>?@[\\\]^_`{|}~]+$/.test(text);
-    if (isEnglish) return text;
+    if (this.isEnglish(text)) return text;
     const t1 = performance.now();
     const { text: engText } = await googleTranslate(text);
     const t2 = performance.now();

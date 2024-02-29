@@ -36,7 +36,7 @@ export class RecognizeSpeechCommand extends Command {
       reply_parameters: { message_id: ctx.message.message_id },
     });
     const text = await this.extractText(fileId, duration, fileExt);
-    ctx.telegram.editMessageText(ctx.chat.id, replyMessage.message_id, undefined, text);
+    await ctx.telegram.editMessageText(ctx.chat.id, replyMessage.message_id, undefined, text);
   }
 
   private async extractText(fileId: string, duration: number, fileExt: string) {

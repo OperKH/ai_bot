@@ -33,7 +33,7 @@ export class MediaTrackerCommand extends Command {
     });
     this.bot.command(this.command, async (ctx) => {
       if (ctx.payload) {
-        this.searchAndReplyPaginated(ctx, ctx.chat.id, ctx.message.message_id, ctx.payload, 0);
+        await this.searchAndReplyPaginated(ctx, ctx.chat.id, ctx.message.message_id, ctx.payload, 0);
       } else {
         await ctx.reply(`ℹ️ Додай пошуковий запит після команди, наприклад: /${this.command} ігрова консоль`, {
           reply_parameters: { message_id: ctx.message.message_id },
@@ -57,6 +57,8 @@ export class MediaTrackerCommand extends Command {
       }
     });
     this.bot.command('starthistoryimport', async (ctx) => {
+      // Allow run in background and release message queue
+      // eslint-disable-next-line @typescript-eslint/no-floating-promises
       this.startHistoryImport(ctx);
     });
   }

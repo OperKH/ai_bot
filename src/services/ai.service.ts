@@ -14,6 +14,7 @@ import {
   CLIPVisionModelWithProjection,
   CLIPTextModelWithProjection,
   RawImage,
+  ZeroShotClassificationPipeline,
 } from '@xenova/transformers';
 env.cacheDir = './data/models';
 
@@ -29,6 +30,12 @@ export type ToxicBertLabel = 'toxic' | 'insult' | 'obscene' | 'identity_hate' | 
 export type ToxicBertResponse = {
   label: ToxicBertLabel;
   score: number;
+};
+
+export type ZeroShotClassificationResponse = {
+  sequence: string;
+  labels: string[];
+  scores: number[];
 };
 
 export type WhisperResponse = {
@@ -52,6 +59,7 @@ export class AIService {
   private clipVisionModel: Promise<PreTrainedModel> | null = null;
   private sentimentAnalysisPipeline: Promise<TextClassificationPipeline> | null = null;
   private toxicAnalysisPipeline: Promise<TextClassificationPipeline> | null = null;
+  private zeroShotClassificationPipeline: Promise<ZeroShotClassificationPipeline> | null = null;
   private automaticSpeechRecognitionPipeline: Promise<AutomaticSpeechRecognitionPipeline> | null = null;
 
   public async dispose() {
@@ -100,6 +108,16 @@ export class AIService {
       this.toxicAnalysisPipeline = pipeline('sentiment-analysis', 'Xenova/toxic-bert');
     }
     return this.toxicAnalysisPipeline;
+  }
+  private getZeroShotClassificationPipeline() {
+    if (!this.zeroShotClassificationPipeline) {
+      this.zeroShotClassificationPipeline = pipeline(
+        'zero-shot-classification',
+        'Xenova/mDeBERTa-v3-base-xnli-multilingual-nli-2mil7',
+        { quantized: false },
+      );
+    }
+    return this.zeroShotClassificationPipeline;
   }
   private getAutomaticSpeechRecognitionPipeline() {
     if (!this.automaticSpeechRecognitionPipeline) {
@@ -164,6 +182,15 @@ export class AIService {
     const t2 = performance.now();
     console.log(`toxicAnalysis(${Math.round(t2 - t1)} ms)`, text, output);
     return output as ToxicBertResponse[];
+  }
+
+  async zeroShotClassification(text: string, labels: string[]) {
+    const classifier = await this.getZeroShotClassificationPipeline();
+    const t1 = performance.now();
+    const output = await classifier(text.toLocaleLowerCase(), labels, { multi_label: true });
+    const t2 = performance.now();
+    console.log(`zeroShotClassification(${Math.round(t2 - t1)} ms)`, text, output);
+    return output as ZeroShotClassificationResponse;
   }
 
   async audio2text(audio: AudioPipelineInputs, duration: number): Promise<string> {

@@ -24,11 +24,15 @@ export class ClockLoader extends Loader {
       this.emojiIndex = this.emojiIndex < this.emojiList.length - 1 ? this.emojiIndex + 1 : 0;
       try {
         await this.ctx.telegram.editMessageText(this.ctx.chat.id, this.messageId, '', this.currentEmoji);
+        // Allow run in background and release message queue
+        // eslint-disable-next-line @typescript-eslint/no-floating-promises
         this.start();
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
       } catch (e: any) {
         const sec = e?.response?.parameters?.retry_after ?? 15;
         console.log(`Temp ban for ${sec} sec`);
+        // Allow run in background and release message queue
+        // eslint-disable-next-line @typescript-eslint/no-floating-promises
         this.start(reply, sec * 1000);
       }
     }, ms);

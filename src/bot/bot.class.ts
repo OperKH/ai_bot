@@ -17,7 +17,7 @@ export class Bot {
     this.bot.use(session());
   }
 
-  registerCommands(
+  async registerCommands(
     commands: Array<{
       new (bot: Telegraf<IBotContext>, dataSource: DataSource, configService: ConfigService): Command;
     }>,
@@ -32,10 +32,12 @@ export class Bot {
         botCommands.push({ command, description });
       }
     }
-    this.bot.telegram.setMyCommands(botCommands);
+    await this.bot.telegram.setMyCommands(botCommands);
   }
 
   start() {
+    // Promise alive until bot stopped
+    // eslint-disable-next-line @typescript-eslint/no-floating-promises
     this.bot.launch();
     console.log('Bot started');
   }

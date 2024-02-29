@@ -14,7 +14,7 @@ await dataSource.initialize();
 
 const bot = new Bot(configService, dataSource);
 
-bot.registerCommands([StartCommand, MediaTrackerCommand, ClassifyMessageCommand, RecognizeSpeechCommand]);
+await bot.registerCommands([StartCommand, MediaTrackerCommand, ClassifyMessageCommand, RecognizeSpeechCommand]);
 bot.start();
 
 // Enable graceful stop

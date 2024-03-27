@@ -34,6 +34,7 @@ export class RecognizeSpeechCommand extends Command {
   ) {
     const replyMessage = await ctx.reply('💬', {
       reply_parameters: { message_id: ctx.message.message_id },
+      disable_notification: true,
     });
     const text = await this.extractText(fileId, duration, fileExt);
     await ctx.telegram.editMessageText(ctx.chat.id, replyMessage.message_id, undefined, text);

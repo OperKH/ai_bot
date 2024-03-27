@@ -121,7 +121,7 @@ export class AIService {
   }
   private getAutomaticSpeechRecognitionPipeline() {
     if (!this.automaticSpeechRecognitionPipeline) {
-      this.automaticSpeechRecognitionPipeline = pipeline('automatic-speech-recognition', 'Xenova/whisper-large-v3');
+      this.automaticSpeechRecognitionPipeline = pipeline('automatic-speech-recognition', 'Xenova/whisper-large-v2');
     }
     return this.automaticSpeechRecognitionPipeline;
   }

@@ -32,12 +32,16 @@ export class RecognizeSpeechCommand extends Command {
     duration: number,
     fileExt: string,
   ) {
-    const replyMessage = await ctx.reply('💬', {
-      reply_parameters: { message_id: ctx.message.message_id },
-      disable_notification: true,
-    });
-    const text = await this.extractText(fileId, duration, fileExt);
-    await ctx.telegram.editMessageText(ctx.chat.id, replyMessage.message_id, undefined, text);
+    try {
+      const replyMessage = await ctx.reply('💬', {
+        reply_parameters: { message_id: ctx.message.message_id },
+        disable_notification: true,
+      });
+      const text = await this.extractText(fileId, duration, fileExt);
+      await ctx.telegram.editMessageText(ctx.chat.id, replyMessage.message_id, undefined, text);
+    } catch (e) {
+      console.log(e);
+    }
   }
 
   private async extractText(fileId: string, duration: number, fileExt: string) {

@@ -18,5 +18,5 @@
   },
   "typescript.tsdk": "node_modules/typescript/lib",
   "cSpell.language": "en,uk",
-  "cSpell.words": ["typeorm", "Xenova"]
+  "cSpell.words": ["typeorm", "vchord", "vchordrq", "Xenova"]
 }

@@ -1,13 +1,11 @@
-import { TelegramClient } from 'telegram';
-import { StringSession } from 'telegram/sessions/index.js';
-// @ts-expect-error any
+import { TelegramClient, sessions } from 'telegram';
 import input from 'input';
-import { ConfigService } from '../config/config.service.js';
+import { ConfigService } from '../config/config.service';
 
 const configService = ConfigService.getInstance();
 const apiId = configService.get('TG_API_ID');
 const apiHash = configService.get('TG_API_HASH');
-const stringSession = new StringSession(configService.get('TG_API_SESSION'));
+const stringSession = new sessions.StringSession(configService.get('TG_API_SESSION'));
 
 console.log('Loading interactive app...');
 const client = new TelegramClient(stringSession, apiId, apiHash, { connectionRetries: 5 });

@@ -5,10 +5,10 @@ import { NarrowedContext } from 'telegraf';
 import { Message, Update } from 'telegraf/types';
 import { message } from 'telegraf/filters';
 
-import { Command } from './command.class.js';
-import { IBotContext } from '../context/context.interface.js';
-import { AIService } from '../../services/ai.service.js';
-import { FileService } from '../../services/file.service.js';
+import { Command } from './command.class';
+import { IBotContext } from '../context/context.interface';
+import { AIService } from '../../services/ai.service';
+import { FileService } from '../../services/file.service';
 
 export class RecognizeSpeechCommand extends Command {
   public command = null;

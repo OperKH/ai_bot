@@ -15,7 +15,7 @@ import {
   CLIPTextModelWithProjection,
   RawImage,
   ZeroShotClassificationPipeline,
-} from '@xenova/transformers';
+} from '@huggingface/transformers';
 env.cacheDir = './data/models';
 
 export type DistilBertLabel = 'NEGATIVE' | 'POSITIVE';
@@ -52,7 +52,11 @@ export class AIService {
     return AIService.instance;
   }
 
-  private clipModel = 'Xenova/clip-vit-base-patch16';
+  private static clipModel = 'Xenova/clip-vit-base-patch16';
+  private static whisperModel = 'onnx-community/whisper-large-v3-turbo';
+  private static sentimentModel = 'Xenova/distilbert-base-uncased-finetuned-sst-2-english';
+  private static toxicModel = 'Xenova/toxic-bert';
+  private static zeroShotClassificationModel = 'Xenova/mDeBERTa-v3-base-xnli-multilingual-nli-2mil7';
   private clipTokenizer: Promise<PreTrainedTokenizer> | null = null;
   private clipProcessor: Promise<Processor> | null = null;
   private clipTextModel: Promise<PreTrainedModel> | null = null;
@@ -72,40 +76,37 @@ export class AIService {
 
   private getClipTokenizer() {
     if (!this.clipTokenizer) {
-      this.clipTokenizer = AutoTokenizer.from_pretrained(this.clipModel, { quantized: false });
+      this.clipTokenizer = AutoTokenizer.from_pretrained(AIService.clipModel);
     }
     return this.clipTokenizer;
   }
   private getClipProcessor() {
     if (!this.clipProcessor) {
-      this.clipProcessor = AutoProcessor.from_pretrained(this.clipModel, { quantized: false });
+      this.clipProcessor = AutoProcessor.from_pretrained(AIService.clipModel, { dtype: 'fp32' });
     }
     return this.clipProcessor;
   }
   private getClipTextModel() {
     if (!this.clipTextModel) {
-      this.clipTextModel = CLIPTextModelWithProjection.from_pretrained(this.clipModel, { quantized: false });
+      this.clipTextModel = CLIPTextModelWithProjection.from_pretrained(AIService.clipModel, { dtype: 'fp32' });
     }
     return this.clipTextModel;
   }
   private getClipVisionModel() {
     if (!this.clipVisionModel) {
-      this.clipVisionModel = CLIPVisionModelWithProjection.from_pretrained(this.clipModel, { quantized: false });
+      this.clipVisionModel = CLIPVisionModelWithProjection.from_pretrained(AIService.clipModel, { dtype: 'fp32' });
     }
     return this.clipVisionModel;
   }
   private getSentimentAnalysisPipeline() {
     if (!this.sentimentAnalysisPipeline) {
-      this.sentimentAnalysisPipeline = pipeline(
-        'sentiment-analysis',
-        'Xenova/distilbert-base-uncased-finetuned-sst-2-english',
-      );
+      this.sentimentAnalysisPipeline = pipeline('sentiment-analysis', AIService.sentimentModel, { dtype: 'q8' });
     }
     return this.sentimentAnalysisPipeline;
   }
   private getToxicAnalysisPipeline() {
     if (!this.toxicAnalysisPipeline) {
-      this.toxicAnalysisPipeline = pipeline('text-classification', 'Xenova/toxic-bert');
+      this.toxicAnalysisPipeline = pipeline('text-classification', AIService.toxicModel, { dtype: 'q8' });
     }
     return this.toxicAnalysisPipeline;
   }
@@ -113,16 +114,19 @@ export class AIService {
     if (!this.zeroShotClassificationPipeline) {
       this.zeroShotClassificationPipeline = pipeline(
         'zero-shot-classification',
-        'Xenova/mDeBERTa-v3-base-xnli-multilingual-nli-2mil7',
-        { quantized: false },
+        AIService.zeroShotClassificationModel,
+        { dtype: 'fp32' },
       );
     }
     return this.zeroShotClassificationPipeline;
   }
   private getAutomaticSpeechRecognitionPipeline() {
     if (!this.automaticSpeechRecognitionPipeline) {
-      this.automaticSpeechRecognitionPipeline = pipeline('automatic-speech-recognition', 'Xenova/whisper-large-v2');
+      this.automaticSpeechRecognitionPipeline = pipeline('automatic-speech-recognition', AIService.whisperModel, {
+        dtype: 'q8',
+      });
     }
+
     return this.automaticSpeechRecognitionPipeline;
   }
 
@@ -181,7 +185,7 @@ export class AIService {
   async toxicAnalysis(text: string) {
     const classifier = await this.getToxicAnalysisPipeline();
     const t1 = performance.now();
-    const output = await classifier(text, { topk: 6 });
+    const output = await classifier(text, { top_k: 6 });
     const t2 = performance.now();
     console.log(`toxicAnalysis(${Math.round(t2 - t1)} ms)`, text, output);
     return output as ToxicBertResponse[];
@@ -200,7 +204,10 @@ export class AIService {
     const transcriber = await this.getAutomaticSpeechRecognitionPipeline();
     const t1 = performance.now();
     const output = await transcriber(audio, {
-      task: 'transcribe',
+      // task: 'transcribe',
+      // @ts-expect-error Hack to enable multi-language. `task` must be empty in this case.
+      is_multilingual: false,
+      return_timestamps: false,
       chunk_length_s: duration >= 30 ? 30 : undefined,
       stride_length_s: duration >= 30 ? 5 : undefined,
     });

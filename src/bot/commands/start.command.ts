@@ -1,4 +1,4 @@
-import { Command } from './command.class.js';
+import { Command } from './command.class';
 
 export class StartCommand extends Command {
   public command = 'start';

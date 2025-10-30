@@ -1,7 +1,7 @@
-export * from './command.class.js';
+export * from './command.class';
 
-export * from './classifyMessage.command.js';
-export * from './clock.command.js';
-export * from './mediaTracker.command.js';
-export * from './recognizeSpeech.command.js';
-export * from './start.command.js';
+export * from './classifyMessage.command';
+export * from './clock.command';
+export * from './mediaTracker.command';
+export * from './recognizeSpeech.command';
+export * from './start.command';

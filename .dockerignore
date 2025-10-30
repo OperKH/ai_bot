@@ -3,6 +3,7 @@ data
 dist
 
 Dockerfile
-README.md
+eslint.config.js
+*.md
 
 .*

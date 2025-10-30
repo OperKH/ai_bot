@@ -1,8 +1,8 @@
 import { message } from 'telegraf/filters';
 import { TelegramEmoji } from 'telegraf/types';
 
-import { Command } from './command.class.js';
-import { AIService } from '../../services/ai.service.js';
+import { Command } from './command.class';
+import { AIService } from '../../services/ai.service';
 
 type LabelKey = 'insult' | 'obscene' | 'toxic' | 'sexy' | 'cute';
 type LabelValue = {

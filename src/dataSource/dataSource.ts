@@ -1,8 +1,8 @@
 import 'reflect-metadata';
 import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { dataSourceFactory } from './dataSource.factory.js';
-import { ConfigService } from '../config/config.service.js';
+import { dataSourceFactory } from './dataSource.factory';
+import { ConfigService } from '../config/config.service';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const configService = ConfigService.getInstance();

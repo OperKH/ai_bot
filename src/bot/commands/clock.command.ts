@@ -1,5 +1,5 @@
-import { Command } from './command.class.js';
-import { ClockLoader } from '../loaders/clockLoader.class.js';
+import { Command } from './command.class';
+import { ClockLoader } from '../loaders/clockLoader.class';
 
 export class ClockCommand extends Command {
   public command = 'clock';

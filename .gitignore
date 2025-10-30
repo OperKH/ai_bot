@@ -4,6 +4,7 @@ docker-compose.override.yml
 node_modules
 data
 dist
+models
 
 # IDE - VSCode
 .vscode/*

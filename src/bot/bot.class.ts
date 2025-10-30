@@ -1,9 +1,9 @@
 import { session, Telegraf } from 'telegraf';
 import { BotCommand } from 'telegraf/types';
 import { DataSource } from 'typeorm';
-import { Command } from './commands/command.class.js';
-import { IBotContext } from './context/context.interface.js';
-import { ConfigService } from '../config/config.service.js';
+import { Command } from './commands/command.class';
+import { IBotContext } from './context/context.interface';
+import { ConfigService } from '../config/config.service';
 
 export class Bot {
   private bot: Telegraf<IBotContext>;

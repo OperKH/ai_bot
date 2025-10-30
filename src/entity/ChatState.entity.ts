@@ -6,6 +6,6 @@ export class ChatState extends BaseEntity {
   @PrimaryColumn('bigint')
   chatId!: string;
 
-  @Column({ default: false })
+  @Column('boolean', { default: false })
   isMediaImported!: boolean;
 }

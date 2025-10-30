@@ -1,2 +1,2 @@
-export * from './ChatPhotoMessage.entity.js';
-export * from './ChatState.entity.js';
+export * from './ChatPhotoMessage.entity';
+export * from './ChatState.entity';

@@ -1,7 +1,7 @@
 import { message } from 'telegraf/filters';
 
-import { Command } from './command.class.js';
-import { AIService } from '../../services/ai.service.js';
+import { Command } from './command.class';
+import { AIService } from '../../services/ai.service';
 
 export class ClassifyMessageCommand extends Command {
   public command = null;

@@ -1,13 +1,12 @@
 import { Context, NarrowedContext } from 'telegraf';
 import { CallbackQuery, InlineKeyboardMarkup, Message, Update } from 'telegraf/types';
 import { message } from 'telegraf/filters';
-import { TelegramClient, Api } from 'telegram';
-import { StringSession } from 'telegram/sessions/index.js';
-import { Command } from './command.class.js';
-import { IBotContext } from '../context/context.interface.js';
-import { AIService } from '../../services/ai.service.js';
-import { FileService } from '../../services/file.service.js';
-import { ChatPhotoMessage, ChatState } from '../../entity/index.js';
+import { TelegramClient, Api, sessions } from 'telegram';
+import { Command } from './command.class';
+import { IBotContext } from '../context/context.interface';
+import { AIService } from '../../services/ai.service';
+import { FileService } from '../../services/file.service';
+import { ChatPhotoMessage, ChatState } from '../../entity/index';
 
 export class MediaTrackerCommand extends Command {
   public command = 'searchmedia';
@@ -230,7 +229,8 @@ export class MediaTrackerCommand extends Command {
         // Save to DB
         const chatState = new ChatState();
         chatState.chatId = String(chatId);
-        (chatState.isMediaImported = true), await chatStateRepository.save(chatState);
+        chatState.isMediaImported = true;
+        await chatStateRepository.save(chatState);
 
         await ctx.reply('😮‍💨 Фух... Усе підтягнув!', {
           reply_parameters: { message_id: messageId },
@@ -262,7 +262,7 @@ export class MediaTrackerCommand extends Command {
   ): Promise<void> {
     const apiId = this.configService.get('TG_API_ID');
     const apiHash = this.configService.get('TG_API_HASH');
-    const stringSession = new StringSession(this.configService.get('TG_API_SESSION'));
+    const stringSession = new sessions.StringSession(this.configService.get('TG_API_SESSION'));
     this.tgClient = new TelegramClient(stringSession, apiId, apiHash, { connectionRetries: 5 });
     await this.tgClient.connect();
 

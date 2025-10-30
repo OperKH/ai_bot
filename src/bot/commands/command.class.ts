@@ -1,7 +1,7 @@
 import { Telegraf } from 'telegraf';
 import { DataSource } from 'typeorm';
-import { IBotContext } from '../context/context.interface.js';
-import { ConfigService } from '../../config/config.service.js';
+import { IBotContext } from '../context/context.interface';
+import { ConfigService } from '../../config/config.service';
 
 export abstract class Command {
   constructor(

@@ -1,4 +1,4 @@
-import { Loader } from './loader.class.js';
+import { Loader } from './loader.class';
 
 export class ClockLoader extends Loader {
   // prettier-ignore

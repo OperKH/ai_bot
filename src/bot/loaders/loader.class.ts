@@ -1,6 +1,6 @@
 import { NarrowedContext } from 'telegraf';
 import { Message, Update } from 'telegraf/types';
-import { IBotContext } from '../context/context.interface.js';
+import { IBotContext } from '../context/context.interface';
 
 export abstract class Loader {
   constructor(public readonly ctx: NarrowedContext<IBotContext, Update.MessageUpdate<Message>>) {}

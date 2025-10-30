@@ -14,7 +14,7 @@ services:
 
   postgres:
     container_name: ai_bot_postgres
-    image: tensorchord/pgvecto-rs:pg16-v0.2.0
+    image: tensorchord/vchord-postgres:pg16-v0.5.3
     environment:
       POSTGRES_DB: ${DB_NAME}
       POSTGRES_USER: ${DB_USERNAME}

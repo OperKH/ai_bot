@@ -75,6 +75,7 @@ export class MediaTrackerCommand extends Command {
       };
       const chatPhotoMessageRepository = this.dataSource.getRepository(ChatPhotoMessage);
       const t1 = performance.now();
+      await this.dataSource.query('SET LOCAL vchordrq.probes = 10');
       const messages = await chatPhotoMessageRepository
         .createQueryBuilder('msg')
         .select('msg.messageId', 'messageId')
@@ -134,8 +135,9 @@ export class MediaTrackerCommand extends Command {
       similarity: number;
     };
     const chatPhotoMessageRepository = this.dataSource.getRepository(ChatPhotoMessage);
-    const t1 = performance.now();
     const limit = this.configService.get('MATCH_IMAGE_COUNT');
+    const t1 = performance.now();
+    await this.dataSource.query('SET LOCAL vchordrq.probes = 10');
     const messages = await chatPhotoMessageRepository
       .createQueryBuilder('msg')
       .select('msg.messageId', 'messageId')

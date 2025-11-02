@@ -25,9 +25,10 @@
     "finetuned",
     "huggingface",
     "onnx",
-    "pgvecto",
     "pretrained",
     "typeorm",
+    "vchord",
+    "vchordrq",
     "Xenova"
   ]
 }

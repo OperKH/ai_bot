@@ -47,20 +47,6 @@ export class FileService {
     return filePath;
   }
 
-  async getBufferByUrl(url: string | URL): Promise<Buffer> {
-    return new Promise((resolve, reject) => {
-      https.get(url, (res) => {
-        if (!res.statusCode || res.statusCode < 200 || res.statusCode >= 300) {
-          reject(new Error(`Failed, status code: ${res.statusCode}`));
-        }
-        const chunks: Buffer[] = [];
-        res.on('data', (chunk: Buffer) => chunks.push(chunk));
-        res.on('end', () => resolve(Buffer.concat(chunks)));
-        res.on('error', reject);
-      });
-    });
-  }
-
   async deleteFileByFileName(fileName: string) {
     const filePath = this.getFilePathByFileName(fileName);
     await fs.promises.rm(filePath);

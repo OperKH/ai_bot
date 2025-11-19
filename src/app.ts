@@ -4,6 +4,7 @@ import { Bot } from './bot/bot.class';
 import {
   StartCommand,
   ClassifyMessageCommand,
+  IgnoreMediaCommand,
   MediaTrackerCommand,
   RecognizeSpeechCommand,
 } from './bot/commands/index';
@@ -14,7 +15,13 @@ await dataSource.initialize();
 
 const bot = new Bot(configService, dataSource);
 
-await bot.registerCommands([StartCommand, MediaTrackerCommand, ClassifyMessageCommand, RecognizeSpeechCommand]);
+await bot.registerCommands([
+  StartCommand,
+  MediaTrackerCommand,
+  IgnoreMediaCommand,
+  ClassifyMessageCommand,
+  RecognizeSpeechCommand,
+]);
 bot.start();
 
 // Enable graceful stop

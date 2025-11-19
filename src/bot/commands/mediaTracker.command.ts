@@ -5,14 +5,12 @@ import { TelegramClient, Api, sessions } from 'telegram';
 import { Command } from './command.class';
 import { IBotContext } from '../context/context.interface';
 import { AIService } from '../../services/ai.service';
-import { FileService } from '../../services/file.service';
-import { ChatPhotoMessage, ChatState } from '../../entity/index';
+import { ChatPhotoMessage, ChatState, IgnoredMedia } from '../../entity/index';
 
 export class MediaTrackerCommand extends Command {
   public command = 'searchmedia';
   public description = '[text] 🖼 Пошук медіа за описом';
   private aiService = AIService.getInstance();
-  private fileService = FileService.getInstance();
   private tgClient: TelegramClient | null = null;
   private similarFoundVariants = ['ось тут', 'ще тут', 'і ось', 'навіть це', 'і оце щось схоже'];
   private isMediaImporting = false;
@@ -24,13 +22,21 @@ export class MediaTrackerCommand extends Command {
     this.bot.on(message('photo'), async (ctx) => {
       const fileId = ctx.message.photo.at(-1)?.file_id;
       if (fileId) {
-        await this.messageHandler(ctx, fileId);
+        try {
+          await this.messageHandler(ctx, fileId);
+        } catch (e) {
+          console.log(e);
+        }
       }
     });
     this.bot.on(message('video'), async (ctx) => {
       const fileId = ctx.message.video.thumbnail?.file_id;
       if (fileId) {
-        await this.messageHandler(ctx, fileId);
+        try {
+          await this.messageHandler(ctx, fileId);
+        } catch (e) {
+          console.log(e);
+        }
       }
     });
     this.bot.command(this.command, async (ctx) => {
@@ -67,52 +73,84 @@ export class MediaTrackerCommand extends Command {
 
   private async messageHandler(ctx: NarrowedContext<IBotContext, Update.MessageUpdate<Message>>, fileId: string) {
     if (this.isMediaImporting) return;
+
     const chatId = ctx.chat.id;
     const messageId = ctx.message.message_id;
+    const fileUrl = await this.bot.telegram.getFileLink(fileId);
+    const imageEmbeddingString = await this.aiService.getEmbeddingStringByImageUrl(fileUrl);
+
+    const chatPhotoMessageRepository = this.dataSource.getRepository(ChatPhotoMessage);
+    const ignoredMediaRepository = this.dataSource.getRepository(IgnoredMedia);
+
     try {
-      // DB similarity search
-      const imageEmbeddingString = await this.getEmbeddingStringByImageFileId(fileId);
-      type Messages = {
-        messageId: string;
-        similarity: number;
+      // Check if media is in ignored list
+      type IgnoredResult = {
+        id: string;
+        chatId: string;
       };
-      const chatPhotoMessageRepository = this.dataSource.getRepository(ChatPhotoMessage);
-      const limit = this.configService.get('MATCH_IMAGE_COUNT');
-      const multiplier = await this.getQueryMultiplier();
-      const t1 = performance.now();
       await this.dataSource.query('SET vchordrq.probes = 10');
-      const messages = await chatPhotoMessageRepository
-        .createQueryBuilder('msg')
-        .select('msg.messageId', 'messageId')
-        .addSelect('msg.chatId', 'chatId')
-        .addSelect('1 - (embedding <=> :embedding)', 'similarity')
-        .where('embedding <<=>> sphere(:embedding::vector, :matchImageThreshold)')
-        .orderBy('similarity', 'DESC')
-        .limit(limit * multiplier)
+      const isIgnored = await ignoredMediaRepository
+        .createQueryBuilder('ignored')
+        .select('ignored.id')
+        .addSelect('ignored.chatId', 'chatId')
+        .where('embedding <<=>> sphere(:embedding::vector, :radius)')
         .setParameters({
           embedding: imageEmbeddingString,
-          matchImageThreshold: 1 - this.configService.get('MATCH_IMAGE_THRESHOLD'),
+          radius: 1 - this.configService.get('MATCH_IMAGE_THRESHOLD'),
         })
-        .getRawMany<Messages & { chatId: string }>()
-        .then((messages) => messages.filter((m) => m.chatId === String(chatId)).slice(0, limit));
-      const t2 = performance.now();
-      console.log(`DB query time for message: ${Math.round(t2 - t1)} ms`);
-      // When similar
-      if (messages.length > 0) {
-        await ctx.reply('🕵️‍♀️ Здається, я це вже десь бачив...', {
-          reply_parameters: { message_id: messageId },
-        });
-        let replyMessageCount = 0;
-        for (const { messageId, similarity } of messages) {
-          const variantNumber = replyMessageCount++ % this.similarFoundVariants.length;
-          await ctx.reply(`${this.similarFoundVariants[variantNumber]} (${Math.round(similarity * 1e4) / 1e2}%)`, {
-            reply_parameters: { message_id: Number(messageId), allow_sending_without_reply: true },
-            disable_notification: true,
+        .getRawMany<IgnoredResult>()
+        .then((results) => results.some((r) => r.chatId === String(chatId)));
+
+      if (isIgnored) {
+        const linkChatId = Math.abs(chatId) % 10000000000;
+        console.log('mediaIgnored', `https://t.me/c/${linkChatId}/${messageId}`);
+      } else {
+        // DB similarity search
+        type Messages = {
+          messageId: string;
+          similarity: number;
+        };
+        const limit = this.configService.get('MATCH_IMAGE_COUNT');
+        const multiplier = await this.getQueryMultiplier();
+        const t1 = performance.now();
+        const messages = await chatPhotoMessageRepository
+          .createQueryBuilder('msg')
+          .select('msg.messageId', 'messageId')
+          .addSelect('msg.chatId', 'chatId')
+          .addSelect('1 - (embedding <=> :embedding)', 'similarity')
+          .where('embedding <<=>> sphere(:embedding::vector, :radius)')
+          .orderBy('similarity', 'DESC')
+          .limit(limit * multiplier)
+          .setParameters({
+            embedding: imageEmbeddingString,
+            radius: 1 - this.configService.get('MATCH_IMAGE_THRESHOLD'),
+          })
+          .getRawMany<Messages & { chatId: string }>()
+          .then((messages) => messages.filter((m) => m.chatId === String(chatId)).slice(0, limit));
+        const t2 = performance.now();
+        console.log(`DB query time for message: ${Math.round(t2 - t1)} ms`);
+        // When similar
+        if (messages.length > 0) {
+          await ctx.reply('🕵️‍♀️ Здається, я це вже десь бачив...', {
+            reply_parameters: { message_id: messageId },
           });
-          // Wait 1 second before send next message
-          await new Promise((r) => setTimeout(r, 1000));
+          let replyMessageCount = 0;
+          for (const { messageId, similarity } of messages) {
+            const variantNumber = replyMessageCount++ % this.similarFoundVariants.length;
+            await ctx.reply(`${this.similarFoundVariants[variantNumber]} (${Math.round(similarity * 1e4) / 1e2}%)`, {
+              reply_parameters: { message_id: Number(messageId), allow_sending_without_reply: true },
+              disable_notification: true,
+            });
+            // Wait 1 second before send next message
+            await new Promise((r) => setTimeout(r, 1000));
+          }
         }
       }
+    } catch (e) {
+      console.log(e);
+    }
+
+    try {
       // Save to DB
       const chatPhotoMessage = new ChatPhotoMessage();
       chatPhotoMessage.chatId = String(chatId);
@@ -137,6 +175,7 @@ export class MediaTrackerCommand extends Command {
     const textEmbeddingString = JSON.stringify(textEmbedding);
     type Messages = {
       messageId: string;
+      chatId: string;
       similarity: number;
     };
     const chatPhotoMessageRepository = this.dataSource.getRepository(ChatPhotoMessage);
@@ -149,14 +188,14 @@ export class MediaTrackerCommand extends Command {
       .select('msg.messageId', 'messageId')
       .addSelect('msg.chatId', 'chatId')
       .addSelect('1 - (embedding <=> :embedding::vector)', 'similarity')
-      .where('embedding <<=>> sphere(:embedding::vector, :matchImageThreshold)')
+      .where('embedding <<=>> sphere(:embedding::vector, :radius)')
       .orderBy('similarity', 'DESC')
       .limit((limit + offset * multiplier) * multiplier)
       .setParameters({
         embedding: textEmbeddingString,
-        matchImageThreshold: 1 - this.configService.get('MATCH_TEXT_THRESHOLD'),
+        radius: 1 - this.configService.get('MATCH_TEXT_THRESHOLD'),
       })
-      .getRawMany<Messages & { chatId: string }>()
+      .getRawMany<Messages>()
       .then((messages) => messages.filter((m) => m.chatId === String(chatId)).slice(offset, limit + offset));
     const t2 = performance.now();
     console.log(`DB query time for search: ${Math.round(t2 - t1)} ms`);
@@ -272,15 +311,6 @@ export class MediaTrackerCommand extends Command {
     this.chatCountCacheTime = now;
 
     return this.chatCountCache;
-  }
-
-  private async getEmbeddingStringByImageFileId(fileId: string) {
-    const fileUrl = await this.bot.telegram.getFileLink(fileId);
-    const imageBuffer = await this.fileService.getBufferByUrl(fileUrl);
-    const rawImage = await this.aiService.getRawImageFromBuffer(imageBuffer);
-    const imageEmbedding = await this.aiService.getImageClipEmbedding(rawImage);
-    const imageEmbeddingString = JSON.stringify(imageEmbedding);
-    return imageEmbeddingString;
   }
 
   private async importChatMessages(

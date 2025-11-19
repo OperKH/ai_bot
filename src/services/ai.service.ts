@@ -1,3 +1,4 @@
+import https from 'node:https';
 import googleTranslate from '@iamtraction/google-translate';
 import sharp from 'sharp';
 import {
@@ -228,5 +229,26 @@ export class AIService {
     const engText = await this.getEnglishTranslation(text);
     const [{ score }] = await this.toxicAnalysis(engText);
     return score;
+  }
+
+  async getEmbeddingStringByImageUrl(url: string | URL): Promise<string> {
+    const imageBuffer = await this.getBufferByUrl(url);
+    const rawImage = await this.getRawImageFromBuffer(imageBuffer);
+    const imageEmbedding = await this.getImageClipEmbedding(rawImage);
+    return JSON.stringify(imageEmbedding);
+  }
+
+  private getBufferByUrl(url: string | URL): Promise<Buffer> {
+    return new Promise((resolve, reject) => {
+      https.get(url, (res) => {
+        if (!res.statusCode || res.statusCode < 200 || res.statusCode >= 300) {
+          reject(new Error(`Failed, status code: ${res.statusCode}`));
+        }
+        const chunks: Buffer[] = [];
+        res.on('data', (chunk: Buffer) => chunks.push(chunk));
+        res.on('end', () => resolve(Buffer.concat(chunks)));
+        res.on('error', reject);
+      });
+    });
   }
 }

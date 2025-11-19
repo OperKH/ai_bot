@@ -16,6 +16,9 @@ export class MediaTrackerCommand extends Command {
   private tgClient: TelegramClient | null = null;
   private similarFoundVariants = ['ось тут', 'ще тут', 'і ось', 'навіть це', 'і оце щось схоже'];
   private isMediaImporting = false;
+  private chatCountCache: number | null = null;
+  private chatCountCacheTime: number = 0;
+  private readonly CHAT_COUNT_CACHE_TTL = 20 * 60 * 1000; // 20 minutes
 
   handle(): void {
     this.bot.on(message('photo'), async (ctx) => {
@@ -74,24 +77,26 @@ export class MediaTrackerCommand extends Command {
         similarity: number;
       };
       const chatPhotoMessageRepository = this.dataSource.getRepository(ChatPhotoMessage);
+      const limit = this.configService.get('MATCH_IMAGE_COUNT');
+      const multiplier = await this.getQueryMultiplier();
       const t1 = performance.now();
-      await this.dataSource.query('SET LOCAL vchordrq.probes = 10');
+      await this.dataSource.query('SET vchordrq.probes = 10');
       const messages = await chatPhotoMessageRepository
         .createQueryBuilder('msg')
         .select('msg.messageId', 'messageId')
+        .addSelect('msg.chatId', 'chatId')
         .addSelect('1 - (embedding <=> :embedding)', 'similarity')
-        .where('msg.chatId = :chatId')
-        .andWhere('1 - (embedding <=> :embedding) > :matchImageThreshold')
+        .where('embedding <<=>> sphere(:embedding::vector, :matchImageThreshold)')
         .orderBy('similarity', 'DESC')
-        .limit(this.configService.get('MATCH_IMAGE_COUNT'))
+        .limit(limit * multiplier)
         .setParameters({
-          chatId,
           embedding: imageEmbeddingString,
-          matchImageThreshold: this.configService.get('MATCH_IMAGE_THRESHOLD'),
+          matchImageThreshold: 1 - this.configService.get('MATCH_IMAGE_THRESHOLD'),
         })
-        .getRawMany<Messages>();
+        .getRawMany<Messages & { chatId: string }>()
+        .then((messages) => messages.filter((m) => m.chatId === String(chatId)).slice(0, limit));
       const t2 = performance.now();
-      console.log(`DB query time: ${Math.round(t2 - t1)} ms`);
+      console.log(`DB query time for message: ${Math.round(t2 - t1)} ms`);
       // When similar
       if (messages.length > 0) {
         await ctx.reply('🕵️‍♀️ Здається, я це вже десь бачив...', {
@@ -136,25 +141,25 @@ export class MediaTrackerCommand extends Command {
     };
     const chatPhotoMessageRepository = this.dataSource.getRepository(ChatPhotoMessage);
     const limit = this.configService.get('MATCH_IMAGE_COUNT');
+    const multiplier = await this.getQueryMultiplier();
     const t1 = performance.now();
-    await this.dataSource.query('SET LOCAL vchordrq.probes = 10');
+    await this.dataSource.query('SET vchordrq.probes = 10');
     const messages = await chatPhotoMessageRepository
       .createQueryBuilder('msg')
       .select('msg.messageId', 'messageId')
-      .addSelect('1 - (embedding <=> :embedding)', 'similarity')
-      .where('msg.chatId = :chatId')
-      .andWhere('1 - (embedding <=> :embedding) > :matchImageThreshold')
+      .addSelect('msg.chatId', 'chatId')
+      .addSelect('1 - (embedding <=> :embedding::vector)', 'similarity')
+      .where('embedding <<=>> sphere(:embedding::vector, :matchImageThreshold)')
       .orderBy('similarity', 'DESC')
-      .offset(offset)
-      .limit(limit)
+      .limit((limit + offset * multiplier) * multiplier)
       .setParameters({
-        chatId,
         embedding: textEmbeddingString,
-        matchImageThreshold: this.configService.get('MATCH_TEXT_THRESHOLD'),
+        matchImageThreshold: 1 - this.configService.get('MATCH_TEXT_THRESHOLD'),
       })
-      .getRawMany<Messages>();
+      .getRawMany<Messages & { chatId: string }>()
+      .then((messages) => messages.filter((m) => m.chatId === String(chatId)).slice(offset, limit + offset));
     const t2 = performance.now();
-    console.log(`DB query time: ${Math.round(t2 - t1)} ms`);
+    console.log(`DB query time for search: ${Math.round(t2 - t1)} ms`);
     // When similar
     if (messages.length > 0) {
       const hasMore = messages.length === limit;
@@ -246,6 +251,27 @@ export class MediaTrackerCommand extends Command {
     } finally {
       this.isMediaImporting = false;
     }
+  }
+
+  private async getQueryMultiplier(): Promise<number> {
+    const now = Date.now();
+
+    if (this.chatCountCache !== null && now - this.chatCountCacheTime < this.CHAT_COUNT_CACHE_TTL) {
+      return this.chatCountCache;
+    }
+
+    const result = await this.dataSource
+      .getRepository(ChatPhotoMessage)
+      .createQueryBuilder('msg')
+      .select('COUNT(DISTINCT msg.chatId)', 'count')
+      .getRawOne<{ count: string }>();
+
+    const chatCount = parseInt(result?.count || '1', 10);
+
+    this.chatCountCache = chatCount === 1 ? 1 : Math.min(chatCount * 5, 50);
+    this.chatCountCacheTime = now;
+
+    return this.chatCountCache;
   }
 
   private async getEmbeddingStringByImageFileId(fileId: string) {

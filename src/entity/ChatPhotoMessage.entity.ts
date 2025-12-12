@@ -12,6 +12,12 @@ export class ChatPhotoMessage extends BaseEntity {
   @Column('bigint')
   messageId!: string;
 
+  @Column({ type: 'varchar', length: 10, default: 'photo' })
+  mediaType!: 'photo' | 'video';
+
+  @Column({ type: 'int', default: 0 })
+  frameIndex!: number;
+
   @Index('chat_photo_message_embedding_idx', { synchronize: false })
   @Column({ type: 'vector' as ColumnType, length: 512, select: false })
   embedding!: string;

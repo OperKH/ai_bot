@@ -8,4 +8,7 @@ export class ChatState extends BaseEntity {
 
   @Column('boolean', { default: false })
   isMediaImported!: boolean;
+
+  @Column('boolean', { default: false })
+  isVideoImportedByFrames!: boolean;
 }

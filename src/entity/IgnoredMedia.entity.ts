@@ -9,6 +9,9 @@ export class IgnoredMedia extends BaseEntity {
   @Column('bigint')
   chatId!: string;
 
+  @Column('bigint')
+  messageId!: string;
+
   @Index('ignored_media_embedding_idx', { synchronize: false })
   @Column({ type: 'vector' as ColumnType, length: 512, select: false })
   embedding!: string;

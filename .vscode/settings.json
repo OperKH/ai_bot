@@ -24,6 +24,7 @@
     "dtype",
     "finetuned",
     "huggingface",
+    "LANGFUSE",
     "onnx",
     "pretrained",
     "typeorm",

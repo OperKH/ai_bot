@@ -1,3 +1,4 @@
+import { shutdownTracing } from './tracing';
 import dataSource from './dataSource/dataSource';
 import { ConfigService } from './config/config.service';
 import { Bot } from './bot/bot.class';
@@ -7,6 +8,7 @@ import {
   IgnoreMediaCommand,
   MediaTrackerCommand,
   RecognizeSpeechCommand,
+  TrendsCommand,
 } from './bot/commands/index';
 
 const configService = ConfigService.getInstance();
@@ -21,9 +23,16 @@ await bot.registerCommands([
   IgnoreMediaCommand,
   ClassifyMessageCommand,
   RecognizeSpeechCommand,
+  TrendsCommand,
 ]);
 bot.start();
 
 // Enable graceful stop
-process.once('SIGINT', () => bot.stop('SIGINT'));
-process.once('SIGTERM', () => bot.stop('SIGTERM'));
+process.once('SIGINT', async () => {
+  await bot.stop('SIGINT');
+  await shutdownTracing();
+});
+process.once('SIGTERM', async () => {
+  await bot.stop('SIGTERM');
+  await shutdownTracing();
+});

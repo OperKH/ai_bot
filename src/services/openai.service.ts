@@ -1,0 +1,294 @@
+import OpenAI from 'openai';
+import { observeOpenAI } from '@langfuse/openai';
+import { z } from 'zod';
+import { zodResponseFormat } from 'openai/helpers/zod';
+import { ConfigService } from '../config/config.service.js';
+
+export const SummarizationResultSchema = z.object({
+  topParticipants: z
+    .array(
+      z.object({
+        name: z.string().describe("ім'я"),
+        nickName: z.string().describe('нікнейм'),
+        messageCount: z.number(),
+        summary: z.string().describe('Короткий опис активності'),
+      }),
+    )
+    .describe('Топ-5 активних учасників'),
+  participantSummaries: z
+    .array(
+      z.object({
+        name: z.string().describe("ім'я"),
+        nickName: z.string().describe('нікнейм'),
+        interests: z.array(z.string()),
+      }),
+    )
+    .describe('Чим цікавились учасники чату'),
+  topics: z
+    .array(
+      z.object({
+        topic: z.string().describe('Назва теми'),
+        messageIds: z.array(z.string()).describe('ID повідомлень, що стосуються цієї теми (1-30 найважливіших)'),
+      }),
+    )
+    .describe('Основні неігрові теми обговорення'),
+  trends: z
+    .array(
+      z.object({
+        trend: z.string().describe('Опис тренду'),
+        messageIds: z.array(z.string()).describe('ID повідомлень з цим трендом (1-3)'),
+      }),
+    )
+    .describe('Актуальні тренди'),
+  gaming: z
+    .object({
+      summary: z.string().describe('Опис ігрової тематики'),
+      messageIds: z.array(z.string()).describe('ID повідомлень про ігри (1-10)'),
+    })
+    .nullable()
+    .describe('Ігрова тематика або null'),
+  memes: z
+    .object({
+      summary: z.string().describe('Опис мем-трендів'),
+      messageIds: z.array(z.string()).describe('ID повідомлень з мемами (1-10)'),
+    })
+    .nullable()
+    .describe('Мем-тренди або null'),
+  events: z
+    .array(
+      z.object({
+        event: z.string().describe('Опис події'),
+        messageIds: z.array(z.string()).describe('ID повідомлень про подію (1-3)'),
+      }),
+    )
+    .describe('Заплановані події'),
+  fullSummary: z.string().describe('Повний текстовий підсумок'),
+});
+
+export type SummarizationResult = z.infer<typeof SummarizationResultSchema>;
+
+export interface ChatMessageForSummary {
+  messageId: string;
+  userName: string | null;
+  userFirstName: string | null;
+  userLastName: string | null;
+  textContent: string;
+  hasPhoto: boolean;
+  hasVideo: boolean;
+  mediaDescription: string | null;
+  createdAt: Date;
+}
+
+const SUMMARIZATION_PROMPT = `Ти — асистент для аналізу чат-повідомлень. Проаналізуй історію та створи структурований підсумок СТРОГО відповідно до заданої схеми.
+
+Формат історії повідомлень:
+[ID:messageId] [час] [ім'я] нікнейм: текст
+
+ЗАГАЛЬНІ ПРАВИЛА (HARD CONSTRAINTS):
+- Всі відповіді українською мовою
+- Ігнорувати спам, флуд та однотипні короткі повідомлення без змісту
+- messageIds повинні містити ТІЛЬКИ реальні ID з історії чату
+- Один і той самий факт або обговорення не може з’являтися у кількох секціях
+- Якщо для секції немає релевантного контенту — використовуй null або [] згідно схеми
+
+АНАЛІЗ:
+- Виділяти заплановані або анонсовані події та зустрічі
+- Ідентифікувати ігрові теми окремо (gaming = null, якщо ігри не обговорювались)
+- Аналізувати описи зображень та медіа для виявлення мем-трендів
+  (memes = null, якщо мемів не виявлено)
+- Топ учасників сортувати за кількістю повідомлень (максимум 5)
+- events = [] якщо жодних подій не заплановано
+
+━━━━━━━━━━━━━━━━━━━━
+FULLSUMMARY (ОКРЕМЕ ПРАВИЛО)
+━━━━━━━━━━━━━━━━━━━━
+For the field fullSummary (HARD CONSTRAINTS):
+- Do NOT mention message IDs, numbers, or references in ANY form
+- Do NOT include IDs implicitly or explicitly
+- Do NOT use parentheses to reference sources
+- Use IDs ONLY for internal reasoning
+- fullSummary MUST be a clean, human-readable narrative summary
+- fullSummary MUST NOT introduce facts that are absent from other sections
+
+━━━━━━━━━━━━━━━━━━━━
+SECTION OWNERSHIP RULES (HARD CONSTRAINTS)
+━━━━━━━━━━━━━━━━━━━━
+
+1. EVENTS
+- Будь-які заплановані, анонсовані або майбутні зустрічі, сходки чи події
+  MUST appear ONLY in the "events" section
+- Ігрові зустрічі (gaming meetups, PSP-сходки тощо) ВСЕ ОДНО є подіями
+- Події ЗАБОРОНЕНО включати в "gaming" або "topics"
+- У fullSummary події можуть бути згадані ЛИШЕ узагальнено, без дублювання деталей
+
+2. GAMING
+- "gaming" використовується ВИКЛЮЧНО для:
+  ігор, геймплею, релізів, платформ, модів, ігрових новин або медіа
+- ЗАБОРОНЕНО включати:
+  - зустрічі
+  - сходки
+  - події
+  - дати
+  - плани
+  - реальні офлайн-активності
+- Якщо ігрове обговорення стосується ЛИШЕ події — ВИКЛЮЧИ його з "gaming"
+
+3. TOPICS
+- "topics" містить ТІЛЬКИ неігрові теми обговорення
+- Якщо тема пов’язана з іграми або ігровою культурою — ЗАБОРОНЕНО включати її в "topics"
+- Ігрові обговорення належать ВИКЛЮЧНО до "gaming"
+
+4. NO DUPLICATION RULE
+- Один і той самий факт, подія або обговорення
+  MUST NOT з’являтися більш ніж в одній секції
+- Обери РІВНО одну правильну секцію
+
+5. CONFLICT RESOLUTION (PRIORITY ORDER)
+- Якщо контент підходить до кількох секцій, використовуй ТАКИЙ пріоритет:
+  EVENTS > GAMING > TOPICS
+`;
+
+// Pricing per 1M tokens (USD) - Standard tier
+const MODEL_PRICING: Record<string, { input: number; cached: number; output: number }> = {
+  'gpt-5.2': { input: 1.75, cached: 0.175, output: 14.0 },
+  'gpt-5.1': { input: 1.25, cached: 0.125, output: 10.0 },
+  'gpt-5': { input: 1.25, cached: 0.125, output: 10.0 },
+  'gpt-5-mini': { input: 0.25, cached: 0.025, output: 2.0 },
+  'gpt-5-nano': { input: 0.05, cached: 0.005, output: 0.4 },
+  'gpt-4.1': { input: 2.0, cached: 0.5, output: 8.0 },
+  'gpt-4.1-mini': { input: 0.4, cached: 0.1, output: 1.6 },
+  'gpt-4.1-nano': { input: 0.1, cached: 0.025, output: 0.4 },
+  'gpt-4o': { input: 2.5, cached: 1.25, output: 10.0 },
+  'gpt-4o-mini': { input: 0.15, cached: 0.075, output: 0.6 },
+  o1: { input: 15.0, cached: 7.5, output: 60.0 },
+  o3: { input: 2.0, cached: 0.5, output: 8.0 },
+  'o3-mini': { input: 1.1, cached: 0.55, output: 4.4 },
+  'o4-mini': { input: 1.1, cached: 0.275, output: 4.4 },
+  'o1-mini': { input: 1.1, cached: 0.55, output: 4.4 },
+};
+
+export class OpenAIService {
+  private static instance: OpenAIService;
+  private client: OpenAI;
+  private configService = ConfigService.getInstance();
+
+  private logUsage(method: string, model: string, usage: OpenAI.CompletionUsage | undefined): void {
+    if (!usage) return;
+    const pricing = MODEL_PRICING[model] || { input: 0, cached: 0, output: 0 };
+    const cachedTokens = usage.prompt_tokens_details?.cached_tokens ?? 0;
+    const uncachedTokens = usage.prompt_tokens - cachedTokens;
+    const cost =
+      (uncachedTokens * pricing.input + cachedTokens * pricing.cached + usage.completion_tokens * pricing.output) /
+      1_000_000;
+
+    const cacheInfo = cachedTokens > 0 ? ` (${cachedTokens} cached)` : '';
+    console.log(
+      `[OpenAI] ${method} | model: ${model} | tokens: ${usage.prompt_tokens}${cacheInfo} in / ${usage.completion_tokens} out | cost: $${cost.toFixed(4)}`,
+    );
+  }
+
+  private constructor() {
+    const apiKey = this.configService.get('OPENAI_API_KEY');
+    const baseURL = this.configService.get('OPENAI_BASE_URL');
+
+    const rawClient = new OpenAI({
+      apiKey,
+      ...(baseURL ? { baseURL } : {}),
+    });
+
+    this.client = observeOpenAI(rawClient);
+  }
+
+  public static getInstance(): OpenAIService {
+    if (!OpenAIService.instance) {
+      OpenAIService.instance = new OpenAIService();
+    }
+    return OpenAIService.instance;
+  }
+
+  async summarizeMessages(messages: ChatMessageForSummary[]): Promise<SummarizationResult> {
+    const model = this.configService.get('OPENAI_MODEL');
+
+    // Format messages for the prompt
+    const formattedMessages = messages
+      .map((msg) => {
+        const userName = msg.userName || 'Unknown';
+        const userFullName = `${msg.userFirstName ?? ''} ${msg.userLastName ?? ''}`.trim() || 'Unknown';
+        const time = msg.createdAt.toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit' });
+        let content = `[ID:${msg.messageId}] [${time}] [${userFullName}] ${userName}: ${msg.textContent}`;
+        if (msg.mediaDescription) {
+          content += ` [Медіа: ${msg.mediaDescription}]`;
+        } else if (msg.hasPhoto) {
+          content += ' [Фото]';
+        } else if (msg.hasVideo) {
+          content += ' [Відео]';
+        }
+        return content;
+      })
+      .join('\n');
+
+    const response = await this.client.chat.completions.parse({
+      model,
+      messages: [
+        { role: 'system', content: SUMMARIZATION_PROMPT },
+        { role: 'user', content: `Ось історія чату для аналізу:\n\n${formattedMessages}` },
+      ],
+      response_format: zodResponseFormat(SummarizationResultSchema, 'chat_summary'),
+    });
+    this.logUsage('summarizeMessages', model, response.usage);
+
+    const result = response.choices[0].message.parsed;
+    if (!result) {
+      throw new Error('Failed to parse summarization result');
+    }
+
+    return result;
+  }
+
+  async aggregateSummaries(summaries: string[]): Promise<string> {
+    const model = this.configService.get('OPENAI_MODEL');
+
+    const response = await this.client.chat.completions.create({
+      model,
+      messages: [
+        {
+          role: 'system',
+          content:
+            "Ти - асистент для об'єднання підсумків чату. Створи єдиний узагальнений підсумок на основі наданих окремих підсумків. Відповідай українською мовою. Видаляй повтори та об'єднуй схожі теми.",
+        },
+        {
+          role: 'user',
+          content: `Об'єднай ці підсумки в один:\n\n${summaries.map((s, i) => `--- Період ${i + 1} ---\n${s}`).join('\n\n')}`,
+        },
+      ],
+      max_completion_tokens: 10000,
+    });
+    this.logUsage('aggregateSummaries', model, response.usage);
+
+    return response.choices[0].message.content || '';
+  }
+
+  async describeImage(imageUrl: string): Promise<string> {
+    const model = this.configService.get('OPENAI_MODEL');
+
+    const response = await this.client.chat.completions.create({
+      model,
+      messages: [
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'text',
+              text: 'Опиши це зображення коротко (1-2 речення) українською мовою. Якщо це мем - вкажи це.',
+            },
+            { type: 'image_url', image_url: { url: imageUrl } },
+          ],
+        },
+      ],
+      max_completion_tokens: 1000,
+    });
+    this.logUsage('describeImage', model, response.usage);
+
+    return response.choices[0].message.content || '';
+  }
+}

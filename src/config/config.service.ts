@@ -23,6 +23,13 @@ export class ConfigService {
     MATCH_TEXT_THRESHOLD: parseFloat(process.env.MATCH_TEXT_THRESHOLD || '') || 0.24,
     MATCH_IMAGE_THRESHOLD: parseFloat(process.env.MATCH_IMAGE_THRESHOLD || '') || 0.96,
     MATCH_IMAGE_COUNT: parseInt(process.env.MATCH_IMAGE_COUNT || '', 10) || 3,
+    OPENAI_API_KEY: process.env.OPENAI_API_KEY || '',
+    OPENAI_BASE_URL: process.env.OPENAI_BASE_URL || '',
+    OPENAI_MODEL: process.env.OPENAI_MODEL || 'gpt-5-mini',
+    LANGFUSE_SECRET_KEY: process.env.LANGFUSE_SECRET_KEY || '',
+    LANGFUSE_PUBLIC_KEY: process.env.LANGFUSE_PUBLIC_KEY || '',
+    LANGFUSE_BASE_URL: process.env.LANGFUSE_BASE_URL || 'https://cloud.langfuse.com',
+    LANGFUSE_TRACING_ENVIRONMENT: process.env.LANGFUSE_TRACING_ENVIRONMENT,
   };
 
   get<K extends keyof typeof ConfigService.config>(key: K): (typeof ConfigService.config)[K] {

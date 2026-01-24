@@ -21,7 +21,7 @@ export class MediaTrackerCommand extends Command {
   private readonly CHAT_COUNT_CACHE_TTL = 20 * 60 * 1000; // 20 minutes
 
   handle(): void {
-    this.bot.on(message('photo'), async (ctx) => {
+    this.bot.on(message('photo'), async (ctx, next) => {
       const fileId = ctx.message.photo.at(-1)?.file_id;
       if (fileId) {
         try {
@@ -30,8 +30,9 @@ export class MediaTrackerCommand extends Command {
           console.log(e);
         }
       }
+      return next();
     });
-    this.bot.on(message('video'), async (ctx) => {
+    this.bot.on(message('video'), async (ctx, next) => {
       const fileId = ctx.message.video.file_id;
       if (fileId) {
         try {
@@ -40,6 +41,7 @@ export class MediaTrackerCommand extends Command {
           console.log(e);
         }
       }
+      return next();
     });
     this.bot.command(this.command, async (ctx) => {
       if (ctx.payload) {

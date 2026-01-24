@@ -24,7 +24,7 @@ export class ClassifyMessageCommand extends Command {
   private labelList = Object.keys(this.labelsMap);
 
   handle(): void {
-    this.bot.on(message('text'), async (ctx) => {
+    this.bot.on(message('text'), async (ctx, next) => {
       const { labels, scores } = await this.aiService.zeroShotClassification(ctx.message.text, this.labelList);
 
       let reaction: TelegramEmoji | null = null;
@@ -40,6 +40,8 @@ export class ClassifyMessageCommand extends Command {
       if (reaction) {
         await ctx.react(reaction);
       }
+
+      return next();
     });
   }
 

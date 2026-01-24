@@ -9,20 +9,25 @@ import { Command } from './command.class';
 import { IBotContext } from '../context/context.interface';
 import { AIService } from '../../services/ai.service';
 import { FileService } from '../../services/file.service';
+import { TrendsService } from '../../services/trends.service.js';
 
 export class RecognizeSpeechCommand extends Command {
   public command = null;
   public description = null;
   private aiService = AIService.getInstance();
   private fileService = FileService.getInstance();
+  private trendsService!: TrendsService;
 
   handle(): void {
-    this.bot.on(message('voice'), async (ctx) => {
+    this.trendsService = TrendsService.getInstance(this.dataSource);
+    this.bot.on(message('voice'), async (ctx, next) => {
       await this.messageHandler(ctx, ctx.message.voice.file_id, ctx.message.voice.duration, 'ogg');
+      return next();
     });
 
-    this.bot.on(message('video_note'), async (ctx) => {
+    this.bot.on(message('video_note'), async (ctx, next) => {
       await this.messageHandler(ctx, ctx.message.video_note.file_id, ctx.message.video_note.duration, 'mp4');
+      return next();
     });
   }
 
@@ -39,6 +44,24 @@ export class RecognizeSpeechCommand extends Command {
       });
       const text = await this.extractText(fileId, duration, fileExt);
       await ctx.telegram.editMessageText(ctx.chat.id, replyMessage.message_id, undefined, text);
+
+      // Store transcribed text for trends analysis
+      if (text.startsWith('📝')) {
+        const transcribedText = text.slice(2).trim();
+        try {
+          await this.trendsService.storeMessage({
+            chatId: ctx.chat.id,
+            messageId: ctx.message.message_id,
+            userId: ctx.from.id,
+            userName: ctx.from.username || null,
+            userFirstName: ctx.from.first_name || null,
+            userLastName: ctx.from.last_name || null,
+            textContent: transcribedText,
+          });
+        } catch (e) {
+          console.error('Error storing transcribed message:', e);
+        }
+      }
     } catch (e) {
       console.log(e);
     }

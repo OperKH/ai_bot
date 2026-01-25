@@ -2,6 +2,7 @@ import { message } from 'telegraf/filters';
 import { Command } from './command.class.js';
 import { TrendsService } from '../../services/trends.service.js';
 import { OpenAIService, SummarizationResult } from '../../services/openai.service.js';
+import { getLinkChatId } from '../../utils/telegram.utils.js';
 
 const PERIOD_LABELS: Record<number, string> = {
   3: '3 години',
@@ -18,7 +19,7 @@ function escapeMarkdown(text: string): string {
 
 function formatMessageLinks(chatId: number, messageIds: string[]): string {
   if (!messageIds || messageIds.length === 0) return '';
-  const linkChatId = Math.abs(chatId) % 10000000000;
+  const linkChatId = getLinkChatId(chatId);
   const links = messageIds
     .slice(0, 3)
     .map((messageId) => `[\\#](https://t.me/c/${linkChatId}/${messageId})`)
@@ -150,7 +151,7 @@ export class TrendsCommand extends Command {
           const fileId = ctx.message.photo.at(-1)?.file_id;
           if (fileId) {
             const fileUrl = await this.bot.telegram.getFileLink(fileId);
-            console.log(`[Trends] Describing image with OpenAI for chat ${Math.abs(chatId) % 10000000000}`);
+            console.log(`[Trends] Describing image with OpenAI for chat ${getLinkChatId(chatId)}`);
             mediaDescription = await this.openaiService.describeImage(fileUrl.href);
           }
         } catch (e) {
@@ -246,11 +247,11 @@ export class TrendsCommand extends Command {
       const loadingMsg = await ctx.reply('🦙');
 
       console.log(
-        `[Trends] Starting analysis for chat ${Math.abs(chatId) % 10000000000}, period: ${periodLabel} (${hours}h)`,
+        `[Trends] Starting analysis for chat ${getLinkChatId(chatId)}, period: ${periodLabel} (${hours}h)`,
       );
 
       try {
-        console.log(`[Trends] Calling getTrendsSummary for chat ${Math.abs(chatId) % 10000000000}, hours: ${hours}`);
+        console.log(`[Trends] Calling getTrendsSummary for chat ${getLinkChatId(chatId)}, hours: ${hours}`);
         const result = await this.trendsService.getTrendsSummary(chatId, hours);
 
         let responseText: string;

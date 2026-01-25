@@ -2,6 +2,7 @@ import { Command } from './command.class.js';
 import { AIService } from '../../services/ai.service.js';
 import { VideoService } from '../../services/video.service.js';
 import { IgnoredMedia, ChatPhotoMessage } from '../../entity/index.js';
+import { getLinkChatId } from '../../utils/telegram.utils.js';
 
 export class IgnoreMediaCommand extends Command {
   public command = 'ignoremedia';
@@ -87,7 +88,7 @@ export class IgnoreMediaCommand extends Command {
             .then((results) => results.find((r) => r.chatId === String(chatId)));
 
           if (existing) {
-            const linkChatId = Math.abs(chatId) % 10000000000;
+            const linkChatId = getLinkChatId(chatId);
             console.log(
               'Media already in Ignore List',
               `https://t.me/c/${linkChatId}/${replyToMessage.message_id}`,
@@ -193,7 +194,7 @@ export class IgnoreMediaCommand extends Command {
               .then((results) => results.find((r) => r.chatId === String(chatId)));
 
             if (existing) {
-              const linkChatId = Math.abs(chatId) % 10000000000;
+              const linkChatId = getLinkChatId(chatId);
               console.log(
                 'Media already in Ignore List',
                 `https://t.me/c/${linkChatId}/${replyToMessage.message_id}`,

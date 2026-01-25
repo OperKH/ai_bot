@@ -7,6 +7,7 @@ import { IBotContext } from '../context/context.interface';
 import { AIService } from '../../services/ai.service';
 import { VideoService } from '../../services/video.service';
 import { ChatPhotoMessage, ChatState, IgnoredMedia } from '../../entity/index';
+import { getLinkChatId } from '../../utils/telegram.utils.js';
 
 export class MediaTrackerCommand extends Command {
   public command = 'searchmedia';
@@ -106,7 +107,7 @@ export class MediaTrackerCommand extends Command {
         .then((results) => results.some((r) => r.chatId === String(chatId)));
 
       if (isIgnored) {
-        const linkChatId = Math.abs(chatId) % 10000000000;
+        const linkChatId = getLinkChatId(chatId);
         console.log('mediaIgnored', `https://t.me/c/${linkChatId}/${messageId}`);
       } else {
         // DB similarity search
@@ -240,7 +241,7 @@ export class MediaTrackerCommand extends Command {
       }
 
       if (isIgnored) {
-        const linkChatId = Math.abs(chatId) % 10000000000;
+        const linkChatId = getLinkChatId(chatId);
         console.log('mediaIgnored', `https://t.me/c/${linkChatId}/${messageId}`);
       } else {
         // DB similarity search - check all frames

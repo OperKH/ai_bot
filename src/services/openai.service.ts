@@ -169,7 +169,7 @@ const MODEL_PRICING: Record<string, { input: number; cached: number; output: num
 
 export class OpenAIService {
   private static instance: OpenAIService;
-  private client: OpenAI;
+  private rawClient: OpenAI;
   private configService = ConfigService.getInstance();
 
   private logUsage(method: string, model: string, usage: OpenAI.CompletionUsage | undefined): void {
@@ -187,16 +187,18 @@ export class OpenAIService {
     );
   }
 
+  private getClient(generationName: string): OpenAI {
+    return observeOpenAI(this.rawClient, { generationName });
+  }
+
   private constructor() {
     const apiKey = this.configService.get('OPENAI_API_KEY');
     const baseURL = this.configService.get('OPENAI_BASE_URL');
 
-    const rawClient = new OpenAI({
+    this.rawClient = new OpenAI({
       apiKey,
       ...(baseURL ? { baseURL } : {}),
     });
-
-    this.client = observeOpenAI(rawClient);
   }
 
   public static getInstance(): OpenAIService {
@@ -227,7 +229,7 @@ export class OpenAIService {
       })
       .join('\n');
 
-    const response = await this.client.chat.completions.parse({
+    const response = await this.getClient('Summarize Messages').chat.completions.parse({
       model,
       messages: [
         { role: 'system', content: SUMMARIZATION_PROMPT },
@@ -248,7 +250,7 @@ export class OpenAIService {
   async aggregateSummaries(summaries: string[]): Promise<string> {
     const model = this.configService.get('OPENAI_MODEL');
 
-    const response = await this.client.chat.completions.create({
+    const response = await this.getClient('Aggregate Summaries').chat.completions.create({
       model,
       messages: [
         {
@@ -261,7 +263,7 @@ export class OpenAIService {
           content: `Об'єднай ці підсумки в один:\n\n${summaries.map((s, i) => `--- Період ${i + 1} ---\n${s}`).join('\n\n')}`,
         },
       ],
-      max_completion_tokens: 10000,
+      max_completion_tokens: this.configService.get('OPENAI_MAX_SUMMARY_TOKENS'),
     });
     this.logUsage('aggregateSummaries', model, response.usage);
 
@@ -269,9 +271,9 @@ export class OpenAIService {
   }
 
   async describeImage(imageUrl: string): Promise<string> {
-    const model = this.configService.get('OPENAI_MODEL');
+    const model = this.configService.get('OPENAI_VISION_MODEL');
 
-    const response = await this.client.chat.completions.create({
+    const response = await this.getClient('Describe Image').chat.completions.create({
       model,
       messages: [
         {
@@ -285,7 +287,7 @@ export class OpenAIService {
           ],
         },
       ],
-      max_completion_tokens: 1000,
+      max_completion_tokens: this.configService.get('OPENAI_MAX_DESCRIBE_IMAGE_TOKENS'),
     });
     this.logUsage('describeImage', model, response.usage);
 

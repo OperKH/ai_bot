@@ -3,8 +3,8 @@ import { ChatMessage, TrendsSummary } from '../entity/index.js';
 import { OpenAIService, SummarizationResult } from './openai.service.js';
 
 const BASE_PERIOD_HOURS = 3;
-const MAX_RETENTION_HOURS = 72;
-const CLEANUP_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
+const MAX_RETENTION_HOURS = 30 * 24; // 30 days
+const CLEANUP_INTERVAL_MS = 24 * 60 * 60 * 1000; // 1 day
 
 export interface StoreMessageParams {
   chatId: number;

@@ -169,6 +169,7 @@ const MODEL_PRICING: Record<string, { input: number; cached: number; output: num
 
 export class OpenAIService {
   private static instance: OpenAIService;
+  private static readonly LOG_PREFIX = '[OpenAI]';
   private rawClient: OpenAI;
   private configService = ConfigService.getInstance();
 
@@ -183,7 +184,7 @@ export class OpenAIService {
 
     const cacheInfo = cachedTokens > 0 ? ` (${cachedTokens} cached)` : '';
     console.log(
-      `[OpenAI] ${method} | model: ${model} | tokens: ${usage.prompt_tokens}${cacheInfo} in / ${usage.completion_tokens} out | cost: $${cost.toFixed(4)}`,
+      `${OpenAIService.LOG_PREFIX} ${method} | model: ${model} | tokens: ${usage.prompt_tokens}${cacheInfo} in / ${usage.completion_tokens} out | cost: $${cost.toFixed(6)}`,
     );
   }
 
@@ -275,13 +276,16 @@ export class OpenAIService {
 
     const response = await this.getClient('Describe Image').chat.completions.create({
       model,
+      reasoning_effort: 'minimal',
       messages: [
         {
           role: 'user',
           content: [
             {
               type: 'text',
-              text: 'Опиши це зображення коротко (1-2 речення) українською мовою. Якщо це мем - вкажи це.',
+              text: `Опиши це зображення (1-3 речення) українською мовою без пояснень.
+Якщо це мем - вкажи це.
+Якщо є текст, то важливого передати його в контексті подій точно та без змін.`,
             },
             { type: 'image_url', image_url: { url: imageUrl } },
           ],
@@ -289,8 +293,12 @@ export class OpenAIService {
       ],
       max_completion_tokens: this.configService.get('OPENAI_MAX_DESCRIBE_IMAGE_TOKENS'),
     });
+
+    const result = response.choices[0].message.content || '';
+
+    console.log(`${OpenAIService.LOG_PREFIX} describeImage | ${result}`);
     this.logUsage('describeImage', model, response.usage);
 
-    return response.choices[0].message.content || '';
+    return result;
   }
 }

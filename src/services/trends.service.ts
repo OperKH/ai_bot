@@ -5,6 +5,7 @@ import { OpenAIService, SummarizationResult } from './openai.service.js';
 const BASE_PERIOD_HOURS = 3;
 const MAX_RETENTION_HOURS = 30 * 24; // 30 days
 const CLEANUP_INTERVAL_MS = 24 * 60 * 60 * 1000; // 1 day
+const MAX_MESSAGES_PER_REQUEST = 1000;
 
 export interface StoreMessageParams {
   chatId: number;
@@ -155,129 +156,64 @@ export class TrendsService {
   private async getAggregatedSummary(chatId: number, hours: number): Promise<SummarizationResult | string> {
     const now = new Date();
     const periodStart = new Date(now.getTime() - hours * 60 * 60 * 1000);
+    const alignedStart = this.alignToBlockBoundary(periodStart);
 
-    // Calculate 3-hour blocks
-    const blocks = this.calculateBlocks(periodStart, now);
-    if (blocks.length === 0) {
-      return 'За цей період повідомлень не знайдено';
+    // Check cache
+    const cached = await this.getCachedOrInvalidate(String(chatId), alignedStart, hours);
+    if (cached) {
+      return cached.resultJson ?? cached.summary;
     }
 
-    const aggregatedPeriodStart = blocks[0].start;
-
-    // Check aggregated cache
-    const cachedAggregated = await this.getCachedOrInvalidate(String(chatId), aggregatedPeriodStart, hours);
-    if (cachedAggregated) {
-      return cachedAggregated.resultJson ?? cachedAggregated.summary;
-    }
-
-    // Process each block
-    const { summaries, blockResults } = await this.processBlocks(chatId, blocks);
-
-    if (summaries.length === 0) {
-      return 'За цей період повідомлень не знайдено';
-    }
-
-    // Single block - cache and return directly
-    if (summaries.length === 1) {
-      await this.saveSummaryCache({
+    // Fetch all messages for the period
+    const messages = await this.chatMessageRepo.find({
+      where: {
         chatId: String(chatId),
-        periodStart: aggregatedPeriodStart,
-        periodEnd: blocks[blocks.length - 1].end,
-        periodHours: hours,
-        summary: summaries[0],
-        resultJson: blockResults[0],
-      });
-      return blockResults[0] ?? summaries[0];
-    }
-
-    // Aggregate multiple summaries
-    console.log(`${TrendsService.LOG_PREFIX} Aggregating ${summaries.length} summaries`);
-    const aggregatedText = await this.openaiService.aggregateSummaries(summaries);
-
-    await this.saveSummaryCache({
-      chatId: String(chatId),
-      periodStart: aggregatedPeriodStart,
-      periodEnd: blocks[blocks.length - 1].end,
-      periodHours: hours,
-      summary: aggregatedText,
-      resultJson: null,
+        createdAt: Between(periodStart, now),
+      },
+      order: { createdAt: 'ASC' },
     });
 
-    return aggregatedText;
-  }
-
-  private calculateBlocks(periodStart: Date, now: Date): Array<{ start: Date; end: Date }> {
-    const blocks: Array<{ start: Date; end: Date }> = [];
-    let blockStart = this.alignToBlockBoundary(periodStart);
-
-    while (blockStart < now) {
-      const blockEnd = new Date(blockStart.getTime() + BASE_PERIOD_HOURS * 60 * 60 * 1000);
-      if (blockEnd > periodStart) {
-        blocks.push({
-          start: new Date(blockStart),
-          end: blockEnd > now ? now : blockEnd,
-        });
-      }
-      blockStart = blockEnd;
+    if (messages.length === 0) {
+      return 'За цей період повідомлень не знайдено';
     }
 
-    return blocks;
-  }
+    let result: SummarizationResult;
 
-  private async processBlocks(
-    chatId: number,
-    blocks: Array<{ start: Date; end: Date }>,
-  ): Promise<{ summaries: string[]; blockResults: (SummarizationResult | null)[] }> {
-    const summaries: string[] = [];
-    const blockResults: (SummarizationResult | null)[] = [];
-
-    for (const block of blocks) {
-      // Check block cache (without invalidation - blocks are immutable once passed)
-      const cached = await this.trendsSummaryRepo.findOne({
-        where: {
-          chatId: String(chatId),
-          periodStart: block.start,
-          periodHours: BASE_PERIOD_HOURS,
-        },
-      });
-
-      if (cached) {
-        summaries.push(cached.summary);
-        blockResults.push(cached.resultJson);
-        continue;
+    if (messages.length <= MAX_MESSAGES_PER_REQUEST) {
+      // Single request for all messages
+      console.log(`${TrendsService.LOG_PREFIX} Calling OpenAI for ${messages.length} messages`);
+      result = await this.openaiService.summarizeMessages(messages);
+    } else {
+      // Split into batches and aggregate
+      const batches: ChatMessage[][] = [];
+      for (let i = 0; i < messages.length; i += MAX_MESSAGES_PER_REQUEST) {
+        batches.push(messages.slice(i, i + MAX_MESSAGES_PER_REQUEST));
       }
 
-      // Fetch messages for block
-      const messages = await this.chatMessageRepo.find({
-        where: {
-          chatId: String(chatId),
-          createdAt: Between(block.start, block.end),
-        },
-        order: { createdAt: 'ASC' },
-      });
+      console.log(`${TrendsService.LOG_PREFIX} Processing ${messages.length} messages in ${batches.length} batches`);
 
-      if (messages.length === 0) {
-        continue;
+      const batchResults: SummarizationResult[] = [];
+      for (const batch of batches) {
+        console.log(`${TrendsService.LOG_PREFIX} Calling OpenAI for batch (${batch.length} messages)`);
+        const batchResult = await this.openaiService.summarizeMessages(batch);
+        batchResults.push(batchResult);
       }
 
-      // Generate and cache block summary
-      console.log(`${TrendsService.LOG_PREFIX} Calling OpenAI for block (${messages.length} messages)`);
-      const result = await this.openaiService.summarizeMessages(messages);
-
-      await this.saveSummaryCache({
-        chatId: String(chatId),
-        periodStart: block.start,
-        periodEnd: block.end,
-        periodHours: BASE_PERIOD_HOURS,
-        summary: result.fullSummary,
-        resultJson: result,
-      });
-
-      summaries.push(result.fullSummary);
-      blockResults.push(result);
+      console.log(`${TrendsService.LOG_PREFIX} Aggregating ${batchResults.length} batch results`);
+      result = await this.openaiService.aggregateSummarizationResults(batchResults);
     }
 
-    return { summaries, blockResults };
+    // Cache result
+    await this.saveSummaryCache({
+      chatId: String(chatId),
+      periodStart: alignedStart,
+      periodEnd: now,
+      periodHours: hours,
+      summary: result.fullSummary,
+      resultJson: result,
+    });
+
+    return result;
   }
 
   async storeMessage(params: StoreMessageParams): Promise<void> {
@@ -299,6 +235,8 @@ export class TrendsService {
   startCleanupJob(): void {
     if (this.cleanupIntervalId) return;
 
+    // eslint-disable-next-line @typescript-eslint/no-floating-promises
+    this.cleanup();
     this.cleanupIntervalId = setInterval(() => {
       // eslint-disable-next-line @typescript-eslint/no-floating-promises
       this.cleanup();

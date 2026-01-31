@@ -16,7 +16,7 @@ export type VideoFrame = {
 
 export class VideoService {
   private static instance: VideoService;
-  private readonly FRAME_POSITIONS = [0.1, 0.3, 0.5, 0.7, 0.9]; // Extract at 10%, 30%, 50%, 70%, 90%
+  private readonly FRAME_POSITIONS = [0.1, 0.3, 0.5, 0.7]; // Extract at 10%, 30%, 50%, 70%
   private readonly tempDir = path.join(__dirname, '../../data/temp');
 
   private constructor() {}

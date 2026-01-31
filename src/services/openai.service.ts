@@ -14,16 +14,7 @@ export const SummarizationResultSchema = z.object({
         summary: z.string().describe('Короткий опис активності'),
       }),
     )
-    .describe('Топ-5 активних учасників'),
-  participantSummaries: z
-    .array(
-      z.object({
-        name: z.string().describe("ім'я"),
-        nickName: z.string().describe('нікнейм'),
-        interests: z.array(z.string()),
-      }),
-    )
-    .describe('Чим цікавились учасники чату'),
+    .describe('Топ учасників'),
   topics: z
     .array(
       z.object({
@@ -96,7 +87,7 @@ const SUMMARIZATION_PROMPT = `Ти — асистент для аналізу ч
 - Ідентифікувати ігрові теми окремо (gaming = null, якщо ігри не обговорювались)
 - Аналізувати описи зображень та медіа для виявлення мем-трендів
   (memes = null, якщо мемів не виявлено)
-- Топ учасників сортувати за кількістю повідомлень (максимум 5)
+- Топ учасників сортувати за кількістю повідомлень
 - events = [] якщо жодних подій не заплановано
 
 ━━━━━━━━━━━━━━━━━━━━
@@ -167,6 +158,26 @@ const MODEL_PRICING: Record<string, { input: number; cached: number; output: num
   'o1-mini': { input: 1.1, cached: 0.55, output: 4.4 },
 };
 
+/**
+ * Count message occurrences per userName from formatted messages.
+ * Format: [ID:...] [...] [fullName] userName: text
+ */
+function countMessagesPerUser(formattedMessages: string): Map<string, number> {
+  const counts = new Map<string, number>();
+  const lines = formattedMessages.split('\n');
+
+  for (const line of lines) {
+    // Pattern: ] userName: - userName is between last ] and :
+    const match = line.match(/\] ([^[\]:]+): /);
+    if (match) {
+      const userName = match[1].trim();
+      counts.set(userName, (counts.get(userName) || 0) + 1);
+    }
+  }
+
+  return counts;
+}
+
 export class OpenAIService {
   private static instance: OpenAIService;
   private static readonly LOG_PREFIX = '[OpenAI]';
@@ -232,6 +243,7 @@ export class OpenAIService {
 
     const response = await this.getClient('Summarize Messages').chat.completions.parse({
       model,
+      reasoning_effort: 'low',
       messages: [
         { role: 'system', content: SUMMARIZATION_PROMPT },
         { role: 'user', content: `Ось історія чату для аналізу:\n\n${formattedMessages}` },
@@ -245,30 +257,120 @@ export class OpenAIService {
       throw new Error('Failed to parse summarization result');
     }
 
+    // Fix message counts using actual data from formatted messages
+    const messageCounts = countMessagesPerUser(formattedMessages);
+    for (const participant of result.topParticipants) {
+      const actualCount = messageCounts.get(participant.nickName) || 0;
+      if (actualCount !== participant.messageCount) {
+        console.log(
+          `${OpenAIService.LOG_PREFIX} Fixed messageCount for ${participant.nickName}: ${participant.messageCount} -> ${actualCount}`,
+        );
+        participant.messageCount = actualCount;
+      }
+    }
+
+    // Re-sort by actual message count (descending)
+    result.topParticipants.sort((a, b) => b.messageCount - a.messageCount);
+
     return result;
   }
 
-  async aggregateSummaries(summaries: string[]): Promise<string> {
+  async aggregateSummarizationResults(results: SummarizationResult[]): Promise<SummarizationResult> {
     const model = this.configService.get('OPENAI_MODEL');
 
-    const response = await this.getClient('Aggregate Summaries').chat.completions.create({
+    // Pre-calculate actual message counts by summing from all batch results
+    const actualCounts = new Map<string, number>();
+    for (const result of results) {
+      for (const participant of result.topParticipants) {
+        const current = actualCounts.get(participant.nickName) || 0;
+        actualCounts.set(participant.nickName, current + participant.messageCount);
+      }
+    }
+
+    const formattedResults = results
+      .map((r, i) => `--- Період ${i + 1} ---\n${JSON.stringify(r, null, 2)}`)
+      .join('\n\n');
+
+    const response = await this.getClient('Aggregate Summarization Results').chat.completions.parse({
       model,
+      reasoning_effort: 'low',
       messages: [
         {
           role: 'system',
-          content:
-            "Ти - асистент для об'єднання підсумків чату. Створи єдиний узагальнений підсумок на основі наданих окремих підсумків. Відповідай українською мовою. Видаляй повтори та об'єднуй схожі теми.",
+          content: `Ти - асистент для об'єднання структурованих підсумків чату з різних періодів.
+
+ЗАВДАННЯ:
+Об'єднай надані JSON-підсумки в один структурований підсумок за тією ж схемою.
+
+ПРАВИЛА ОБ'ЄДНАННЯ:
+
+1. topParticipants:
+   - Об'єднай учасників за нікнеймом
+   - Підсумуй messageCount для однакових учасників
+   - Об'єднай summary для кожного учасника
+
+2. topics:
+   - Об'єднай схожі теми в одну
+   - Об'єднай messageIds для схожих тем
+   - Видали точні дублікати тем
+
+3. trends:
+   - Об'єднай схожі тренди
+   - Видали застарілі тренди, якщо є новіші на ту ж тему
+
+4. gaming:
+   - Якщо декілька періодів мають gaming, об'єднай summary
+   - Об'єднай messageIds
+   - Якщо всі null, залиш null
+
+5. memes:
+   - Якщо декілька періодів мають memes, об'єднай summary
+   - Об'єднай messageIds
+   - Якщо всі null, залиш null
+
+6. events:
+   - Об'єднай всі події, видаляючи дублікати
+   - Зберігай messageIds для кожної події
+
+7. fullSummary:
+   - Створи новий узагальнений підсумок на основі всіх даних
+   - НЕ згадуй ID повідомлень
+   - Підсумок має бути зв'язним та читабельним
+
+ВАЖЛИВО:
+- Відповідай українською мовою
+- Дотримуйся тієї ж схеми, що й вхідні дані
+- Не втрачай важливу інформацію при об'єднанні`,
         },
         {
           role: 'user',
-          content: `Об'єднай ці підсумки в один:\n\n${summaries.map((s, i) => `--- Період ${i + 1} ---\n${s}`).join('\n\n')}`,
+          content: `Об'єднай ці підсумки в один:\n\n${formattedResults}`,
         },
       ],
-      max_completion_tokens: this.configService.get('OPENAI_MAX_SUMMARY_TOKENS'),
+      response_format: zodResponseFormat(SummarizationResultSchema, 'aggregated_summary'),
     });
-    this.logUsage('aggregateSummaries', model, response.usage);
+    this.logUsage('aggregateSummarizationResults', model, response.usage);
 
-    return response.choices[0].message.content || '';
+    const result = response.choices[0].message.parsed;
+    if (!result) {
+      throw new Error('Failed to parse aggregated summarization result');
+    }
+
+    // Fix message counts using pre-calculated actual sums from batch results
+    for (const participant of result.topParticipants) {
+      const actualCount = actualCounts.get(participant.nickName) || 0;
+      if (actualCount !== participant.messageCount) {
+        console.log(
+          `${OpenAIService.LOG_PREFIX} Fixed aggregated messageCount for ${participant.nickName}: ${participant.messageCount} -> ${actualCount}`,
+        );
+        participant.messageCount = actualCount;
+      }
+    }
+
+    // Re-sort by actual message count (descending)
+    result.topParticipants.sort((a, b) => b.messageCount - a.messageCount);
+
+    return result;
   }
 
   async describeImage(imageUrl: string): Promise<string> {

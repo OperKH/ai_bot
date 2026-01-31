@@ -27,7 +27,6 @@ export class ConfigService {
     OPENAI_BASE_URL: process.env.OPENAI_BASE_URL || '',
     OPENAI_MODEL: process.env.OPENAI_MODEL || 'gpt-5-mini',
     OPENAI_VISION_MODEL: process.env.OPENAI_VISION_MODEL || 'gpt-5-mini',
-    OPENAI_MAX_SUMMARY_TOKENS: parseInt(process.env.OPENAI_MAX_SUMMARY_TOKENS || '', 10) || 20000,
     OPENAI_MAX_DESCRIBE_IMAGE_TOKENS: parseInt(process.env.OPENAI_MAX_DESCRIBE_IMAGE_TOKENS || '', 10) || 3000,
     LANGFUSE_SECRET_KEY: process.env.LANGFUSE_SECRET_KEY || '',
     LANGFUSE_PUBLIC_KEY: process.env.LANGFUSE_PUBLIC_KEY || '',

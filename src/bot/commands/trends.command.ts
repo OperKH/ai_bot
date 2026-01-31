@@ -4,6 +4,63 @@ import { TrendsService } from '../../services/trends.service.js';
 import { OpenAIService, SummarizationResult } from '../../services/openai.service.js';
 import { getLinkChatId } from '../../utils/telegram.utils.js';
 
+const TELEGRAM_MESSAGE_LIMIT = 4096;
+
+/**
+ * Splits a long message into chunks by sections (double newlines).
+ * Each chunk contains complete sections that fit within the limit.
+ */
+function splitMessage(text: string, limit: number = TELEGRAM_MESSAGE_LIMIT): string[] {
+  if (text.length <= limit) {
+    return [text];
+  }
+
+  const sections = text.split('\n\n');
+  const chunks: string[] = [];
+  let currentChunk = '';
+
+  for (const section of sections) {
+    const sectionWithSeparator = currentChunk ? '\n\n' + section : section;
+
+    if (currentChunk.length + sectionWithSeparator.length <= limit) {
+      // Section fits in current chunk
+      currentChunk += sectionWithSeparator;
+    } else if (section.length > limit) {
+      // Section itself is too long - need to split it by lines
+      if (currentChunk) {
+        chunks.push(currentChunk);
+        currentChunk = '';
+      }
+
+      // Split oversized section by lines
+      const lines = section.split('\n');
+      for (const line of lines) {
+        const lineWithSeparator = currentChunk ? '\n' + line : line;
+        if (currentChunk.length + lineWithSeparator.length <= limit) {
+          currentChunk += lineWithSeparator;
+        } else {
+          if (currentChunk) {
+            chunks.push(currentChunk);
+          }
+          currentChunk = line;
+        }
+      }
+    } else {
+      // Section doesn't fit - start new chunk
+      if (currentChunk) {
+        chunks.push(currentChunk);
+      }
+      currentChunk = section;
+    }
+  }
+
+  if (currentChunk) {
+    chunks.push(currentChunk);
+  }
+
+  return chunks;
+}
+
 const PERIOD_LABELS: Record<number, string> = {
   3: '3 години',
   6: '6 годин',
@@ -20,16 +77,13 @@ function escapeMarkdown(text: string): string {
 function formatMessageLinks(chatId: number, messageIds: string[]): string {
   if (!messageIds || messageIds.length === 0) return '';
   const linkChatId = getLinkChatId(chatId);
-  const links = messageIds
-    .slice(0, 3)
-    .map((messageId) => `[\\#](https://t.me/c/${linkChatId}/${messageId})`)
-    .join(' ');
+  const links = messageIds.map((messageId) => `[💬](https://t.me/c/${linkChatId}/${messageId})`).join(' ');
   return ` ${links}`;
 }
 
 function formatSummary(result: SummarizationResult, periodLabel: string, chatId: number): string {
   const lines: string[] = [
-    `📊 *Тренди за останні ${escapeMarkdown(periodLabel)}*`,
+    `📰 *Тренди за останні ${escapeMarkdown(periodLabel)}*`,
     '',
     '*🔥 Топ учасників:*',
     ...result.topParticipants.map(
@@ -39,20 +93,9 @@ function formatSummary(result: SummarizationResult, periodLabel: string, chatId:
     ),
   ];
 
-  if (result.participantSummaries && result.participantSummaries.length > 0) {
-    lines.push(
-      '',
-      '*👥 Інтереси учасників:*',
-      ...result.participantSummaries.map(
-        (p) =>
-          `• *${escapeMarkdown(p.name)}* \\(@${escapeMarkdown(p.nickName)}\\): ${p.interests.map((i) => escapeMarkdown(i)).join(', ')}`,
-      ),
-    );
-  }
-
   lines.push(
     '',
-    '*💬 Основні теми:*',
+    '*🗣️ Основні теми:*',
     ...result.topics.map((t) => `• ${escapeMarkdown(t.topic)}${formatMessageLinks(chatId, t.messageIds)}`),
   );
 
@@ -240,19 +283,17 @@ export class TrendsCommand extends Command {
       // Answer callback query immediately
       await ctx.answerCbQuery();
 
-      // Edit original message to remove keyboard
-      await ctx.editMessageText(`📊 Обрано період: ${periodLabel}`);
+      // Edit original message to show loading state
+      await ctx.editMessageText(`📊 Обрано період: ${periodLabel}\n\n🦙 Аналізую...`);
 
-      // Send loading indicator
-      const loadingMsg = await ctx.reply('🦙');
-
-      console.log(
-        `[Trends] Starting analysis for chat ${getLinkChatId(chatId)}, period: ${periodLabel} (${hours}h)`,
-      );
+      console.log(`[Trends] Starting analysis for chat ${getLinkChatId(chatId)}, period: ${periodLabel} (${hours}h)`);
 
       try {
         console.log(`[Trends] Calling getTrendsSummary for chat ${getLinkChatId(chatId)}, hours: ${hours}`);
         const result = await this.trendsService.getTrendsSummary(chatId, hours);
+
+        // Remove loading indicator
+        await ctx.editMessageText(`📊 Обрано період: ${periodLabel}`);
 
         let responseText: string;
         if (typeof result === 'string') {
@@ -261,17 +302,21 @@ export class TrendsCommand extends Command {
           responseText = formatSummary(result, periodLabel, chatId);
         }
 
-        await ctx.telegram.editMessageText(chatId, loadingMsg.message_id, undefined, responseText, {
-          parse_mode: 'MarkdownV2',
-        });
+        const chunks = splitMessage(responseText);
+
+        // Send chunks with delays to avoid rate limiting
+        for (let i = 0; i < chunks.length; i++) {
+          if (i > 0) {
+            // Add delay between messages to avoid rate limiting
+            await new Promise((resolve) => setTimeout(resolve, 1000));
+          }
+          await ctx.telegram.sendMessage(chatId, chunks[i], {
+            parse_mode: 'MarkdownV2',
+          });
+        }
       } catch (e) {
         console.error('Error generating trends:', e);
-        await ctx.telegram.editMessageText(
-          chatId,
-          loadingMsg.message_id,
-          undefined,
-          '❌ Помилка при аналізі, спробуйте пізніше',
-        );
+        await ctx.reply('❌ Помилка при аналізі, спробуйте пізніше');
       }
     });
   }

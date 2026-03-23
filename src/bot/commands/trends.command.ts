@@ -93,11 +93,13 @@ function formatSummary(result: SummarizationResult, periodLabel: string, chatId:
     ),
   ];
 
-  lines.push(
-    '',
-    '*🗣️ Основні теми:*',
-    ...result.topics.map((t) => `• ${escapeMarkdown(t.topic)}${formatMessageLinks(chatId, t.messageIds)}`),
-  );
+  if (result.topics && result.topics.length > 0) {
+    lines.push(
+      '',
+      '*🗣️ Основні теми:*',
+      ...result.topics.map((t) => `• ${escapeMarkdown(t.topic)}${formatMessageLinks(chatId, t.messageIds)}`),
+    );
+  }
 
   if (result.trends && result.trends.length > 0) {
     lines.push(

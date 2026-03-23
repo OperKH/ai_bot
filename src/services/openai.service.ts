@@ -11,36 +11,40 @@ export const SummarizationResultSchema = z.object({
         name: z.string().describe("ім'я"),
         nickName: z.string().describe('нікнейм'),
         messageCount: z.number(),
-        summary: z.string().describe('Короткий опис активності'),
+        summary: z
+          .string()
+          .describe('Опис активності учасника: про що писав, які теми піднімав, яку роль відігравав у розмовах'),
       }),
     )
     .describe('Топ учасників'),
   topics: z
     .array(
       z.object({
-        topic: z.string().describe('Назва теми'),
-        messageIds: z.array(z.string()).describe('ID повідомлень, що стосуються цієї теми (1-30 найважливіших)'),
+        topic: z.string().describe('Опис теми: суть обговорення, ключові думки та висновки учасників'),
+        messageIds: z.array(z.string()).describe('ID повідомлень, що стосуються цієї теми (1-16 найважливіших)'),
       }),
     )
     .describe('Основні неігрові теми обговорення'),
   trends: z
     .array(
       z.object({
-        trend: z.string().describe('Опис тренду'),
+        trend: z.string().describe('Опис тренду: що саме відбувається, як виявляється, чому це тренд'),
         messageIds: z.array(z.string()).describe('ID повідомлень з цим трендом (1-3)'),
       }),
     )
     .describe('Актуальні тренди'),
   gaming: z
     .object({
-      summary: z.string().describe('Опис ігрової тематики'),
+      summary: z
+        .string()
+        .describe('Опис ігрової тематики: які ігри обговорювались, що саме говорили, які думки висловлювали'),
       messageIds: z.array(z.string()).describe('ID повідомлень про ігри (1-10)'),
     })
     .nullable()
     .describe('Ігрова тематика або null'),
   memes: z
     .object({
-      summary: z.string().describe('Опис мем-трендів'),
+      summary: z.string().describe('Опис мем-трендів: які меми поширювались, їх тематика та контекст'),
       messageIds: z.array(z.string()).describe('ID повідомлень з мемами (1-10)'),
     })
     .nullable()
@@ -48,12 +52,12 @@ export const SummarizationResultSchema = z.object({
   events: z
     .array(
       z.object({
-        event: z.string().describe('Опис події'),
+        event: z.string().describe('Опис події: що планується, коли (дата та час), хто ініціював'),
         messageIds: z.array(z.string()).describe('ID повідомлень про подію (1-3)'),
       }),
     )
     .describe('Заплановані події'),
-  fullSummary: z.string().describe('Повний текстовий підсумок'),
+  fullSummary: z.string().describe('Підсумок усієї активності чату'),
 });
 
 export type SummarizationResult = z.infer<typeof SummarizationResultSchema>;
@@ -81,6 +85,9 @@ const SUMMARIZATION_PROMPT = `Ти — асистент для аналізу ч
 - messageIds повинні містити ТІЛЬКИ реальні ID з історії чату
 - Один і той самий факт або обговорення не може з’являтися у кількох секціях
 - Якщо для секції немає релевантного контенту — використовуй null або [] згідно схеми
+- Всі текстові описи (summary, topic, trend, event, fullSummary) МАЮТЬ бути розгорнутими та інформативними
+- Розкривай суть: що обговорювалось, які думки висловлювались, яка була реакція
+- НЕ акцентувати увагу на обсязі повідомлень учасника (не згадувати "детально розписував", "довго обговорював", "багато писав" тощо) — важливий ЗМІСТ, а не кількість
 
 АНАЛІЗ:
 - Виділяти заплановані або анонсовані події та зустрічі
@@ -110,6 +117,7 @@ SECTION OWNERSHIP RULES (HARD CONSTRAINTS)
   MUST appear ONLY in the "events" section
 - Ігрові зустрічі (gaming meetups, PSP-сходки тощо) ВСЕ ОДНО є подіями
 - Події ЗАБОРОНЕНО включати в "gaming" або "topics"
+- Кожна подія ОБОВ'ЯЗКОВО повинна містити дату (якщо дату не вказано в чаті — зазначити "дата не вказана")
 - У fullSummary події можуть бути згадані ЛИШЕ узагальнено, без дублювання деталей
 
 2. GAMING
@@ -140,7 +148,14 @@ SECTION OWNERSHIP RULES (HARD CONSTRAINTS)
 `;
 
 // Pricing per 1M tokens (USD) - Standard tier
+// Source: https://developers.openai.com/api/docs/pricing
 const MODEL_PRICING: Record<string, { input: number; cached: number; output: number }> = {
+  'gpt-5.4-pro': { input: 30.0, cached: 0, output: 180.0 },
+  'gpt-5.4': { input: 2.5, cached: 0.25, output: 15.0 },
+  'gpt-5.4-mini': { input: 0.75, cached: 0.075, output: 4.5 },
+  'gpt-5.4-nano': { input: 0.2, cached: 0.02, output: 1.25 },
+  'gpt-5.3-chat-latest': { input: 1.75, cached: 0.175, output: 14.0 },
+  'gpt-5.3-codex': { input: 1.75, cached: 0.175, output: 14.0 },
   'gpt-5.2': { input: 1.75, cached: 0.175, output: 14.0 },
   'gpt-5.1': { input: 1.25, cached: 0.125, output: 10.0 },
   'gpt-5': { input: 1.25, cached: 0.125, output: 10.0 },

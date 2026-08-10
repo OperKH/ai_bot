@@ -299,10 +299,10 @@ Environment variables (see [.env.example](.env.example)):
 - `MATCH_IMAGE_COUNT`: Number of results to return per page (default 3)
 - `OPENAI_API_KEY`: OpenAI API key
 - `OPENAI_BASE_URL`: Optional custom OpenAI API base URL
-- `OPENAI_MODEL`: Model to use (default: gpt-5-mini)
-- `OPENAI_VISION_MODEL`: Model used for image descriptions (default: gpt-5-mini)
+- `OPENAI_MODEL`: Model to use (default: gpt-5.6-luna)
+- `OPENAI_VISION_MODEL`: Model used for image descriptions (default: gpt-5.6-luna)
 - `OPENAI_REASONING_EFFORT`: Effort for summarization and aggregation (default: low)
-- `OPENAI_VISION_REASONING_EFFORT`: Effort for image descriptions (default: minimal)
+- `OPENAI_VISION_REASONING_EFFORT`: Effort for image descriptions (default: none)
 
 **Models disagree on which reasoning efforts they accept, so these must be changed together with
 the model.** The ladders differ by generation:

@@ -46,7 +46,7 @@ export class IgnoreMediaCommand extends Command {
         if (isPhoto) {
           // First, try to find existing embeddings in chat_photo_message table
           const existingPhotoMessage = await chatPhotoMessageRepository.findOne({
-            select: ['embedding'],
+            select: { embedding: true },
             where: {
               chatId: String(chatId),
               messageId: String(replyToMessage.message_id),
@@ -114,7 +114,7 @@ export class IgnoreMediaCommand extends Command {
         else if (isVideo) {
           // First, try to find existing embeddings in chat_photo_message table
           const existingVideoMessages = await chatPhotoMessageRepository.find({
-            select: ['embedding'],
+            select: { embedding: true },
             where: {
               chatId: String(chatId),
               messageId: String(replyToMessage.message_id),

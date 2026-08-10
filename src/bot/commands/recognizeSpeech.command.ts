@@ -71,7 +71,6 @@ export class RecognizeSpeechCommand extends Command {
     const srcFileName = `${fileId}.${fileExt}`;
     const wavFileName = `${fileId}.wav`;
     const wavFilePath = this.fileService.getFilePathByFileName(wavFileName);
-    let resultText = '';
     try {
       const link = await this.bot.telegram.getFileLink(fileId);
       const srcFilePath = await this.fileService.saveFileByUrl(link, srcFileName);
@@ -89,17 +88,16 @@ export class RecognizeSpeechCommand extends Command {
       const wav = new wavefile.WaveFile(wavBuffer);
       const audioData = wav.getSamples();
       const text = await this.aiService.audio2text(audioData, duration);
-      resultText = `📝 ${text.trim()}`;
+      return `📝 ${text.trim()}`;
     } catch (e) {
       console.log(e);
-      resultText = '📛 Помилка';
+      return '📛 Помилка';
     } finally {
       await Promise.allSettled([
         this.fileService.deleteFileByFileName(srcFileName),
         this.fileService.deleteFileByFileName(wavFileName),
       ]);
     }
-    return resultText.trim();
   }
 
   async dispose() {

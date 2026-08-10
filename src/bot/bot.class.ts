@@ -1,9 +1,19 @@
-import { session, Telegraf } from 'telegraf';
+import { session, Telegraf, TelegramError } from 'telegraf';
 import { BotCommand } from 'telegraf/types';
 import { DataSource } from 'typeorm';
 import { Command } from './commands/command.class';
 import { IBotContext } from './context/context.interface';
 import { ConfigService } from '../config/config.service';
+import { retry } from '../utils/retry.utils';
+
+/**
+ * Telegram client errors (invalid token, malformed payload) will not fix
+ * themselves, so retrying them is pointless. Rate limits and server errors
+ * are worth another attempt, and so is anything that is not a Telegram API
+ * response at all — transport failures such as ETIMEDOUT.
+ */
+const isTransientTelegramError = (error: unknown) =>
+  error instanceof TelegramError ? error.code === 429 || error.code >= 500 : true;
 
 export class Bot {
   private bot: Telegraf<IBotContext>;
@@ -17,7 +27,7 @@ export class Bot {
     this.bot.use(session());
   }
 
-  async registerCommands(
+  registerCommands(
     commands: Array<{
       new (bot: Telegraf<IBotContext>, dataSource: DataSource, configService: ConfigService): Command;
     }>,
@@ -32,7 +42,14 @@ export class Bot {
         botCommands.push({ command, description });
       }
     }
-    await this.bot.telegram.setMyCommands(botCommands);
+    // Only fills the command menu in the Telegram UI — handlers are already
+    // registered above, so this runs in the background: a transient network
+    // failure must not delay or stop startup.
+    retry(() => this.bot.telegram.setMyCommands(botCommands), {
+      shouldRetry: isTransientTelegramError,
+      onRetry: (e, attempt, nextDelayMs) =>
+        console.warn(`setMyCommands failed (attempt ${attempt}), retrying in ${nextDelayMs} ms:`, e),
+    }).catch((e) => console.error('Failed to set bot commands:', e));
   }
 
   start() {

@@ -2,6 +2,7 @@
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "sourceMap": false,
-    "removeComments": true
+    "removeComments": true,
+    "tsBuildInfoFile": "dist/tsconfig.release.tsbuildinfo"
   }
 }

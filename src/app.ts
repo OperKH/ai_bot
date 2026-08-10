@@ -17,7 +17,7 @@ await dataSource.initialize();
 
 const bot = new Bot(configService, dataSource);
 
-await bot.registerCommands([
+bot.registerCommands([
   StartCommand,
   MediaTrackerCommand,
   IgnoreMediaCommand,

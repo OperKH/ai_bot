@@ -6,7 +6,6 @@ import {
   pipeline,
   TextClassificationPipeline,
   AutomaticSpeechRecognitionPipeline,
-  AudioPipelineInputs,
   PreTrainedTokenizer,
   Processor,
   PreTrainedModel,
@@ -18,6 +17,11 @@ import {
   ZeroShotClassificationPipeline,
 } from '@huggingface/transformers';
 env.cacheDir = './data/models';
+
+// Transformers.js v4 moved these out of the package barrel into an internal
+// module, so they are mirrored here. Kept identical to the upstream union.
+type AudioInput = string | URL | Float32Array | Float64Array;
+type AudioPipelineInputs = AudioInput | AudioInput[];
 
 export type DistilBertLabel = 'NEGATIVE' | 'POSITIVE';
 
@@ -205,8 +209,8 @@ export class AIService {
     const transcriber = await this.getAutomaticSpeechRecognitionPipeline();
     const t1 = performance.now();
     const output = await transcriber(audio, {
-      // task: 'transcribe',
-      // @ts-expect-error Hack to enable multi-language. `task` must be empty in this case.
+      // Hack to enable multi-language. `task` must be empty in this case.
+      // Still honoured at runtime in v4 via `generation_config.is_multilingual`.
       is_multilingual: false,
       return_timestamps: false,
       chunk_length_s: duration >= 30 ? 30 : undefined,

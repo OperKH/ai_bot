@@ -1,5 +1,5 @@
 # build-stage
-FROM node:24 AS build-stage
+FROM node:26 AS build-stage
 ENV NODE_ENV=build
 WORKDIR /app
 COPY package*.json ./
@@ -8,7 +8,7 @@ COPY . .
 RUN npm run build:release && npm prune --production
 
 # production-stage
-FROM node:24
+FROM node:26
 RUN apt -y update && apt install -y --no-install-recommends ffmpeg && apt clean
 ENV NODE_ENV=production
 WORKDIR /app

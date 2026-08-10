@@ -1,4 +1,22 @@
 import 'dotenv/config';
+import type { ReasoningEffort } from 'openai/resources/shared';
+
+const REASONING_EFFORTS: readonly ReasoningEffort[] = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
+
+/**
+ * Models disagree on which efforts they accept — `minimal` is rejected by newer
+ * models, `none` and `xhigh` by older ones — so this is configurable per model.
+ * An unknown value is refused here rather than sent, because the API would only
+ * fail at the point of use, one call at a time.
+ */
+function reasoningEffort(value: string | undefined, fallback: ReasoningEffort): ReasoningEffort {
+  if (!value) return fallback;
+  if (!REASONING_EFFORTS.includes(value as ReasoningEffort)) {
+    console.warn(`[Config] Unknown reasoning effort "${value}", falling back to "${fallback}".`);
+    return fallback;
+  }
+  return value as ReasoningEffort;
+}
 
 export class ConfigService {
   private static instance: ConfigService;
@@ -27,6 +45,8 @@ export class ConfigService {
     OPENAI_BASE_URL: process.env.OPENAI_BASE_URL || '',
     OPENAI_MODEL: process.env.OPENAI_MODEL || 'gpt-5-mini',
     OPENAI_VISION_MODEL: process.env.OPENAI_VISION_MODEL || 'gpt-5-mini',
+    OPENAI_REASONING_EFFORT: reasoningEffort(process.env.OPENAI_REASONING_EFFORT, 'low'),
+    OPENAI_VISION_REASONING_EFFORT: reasoningEffort(process.env.OPENAI_VISION_REASONING_EFFORT, 'minimal'),
     OPENAI_MAX_DESCRIBE_IMAGE_TOKENS: parseInt(process.env.OPENAI_MAX_DESCRIBE_IMAGE_TOKENS || '', 10) || 3000,
     LANGFUSE_SECRET_KEY: process.env.LANGFUSE_SECRET_KEY || '',
     LANGFUSE_PUBLIC_KEY: process.env.LANGFUSE_PUBLIC_KEY || '',

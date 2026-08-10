@@ -1,0 +1,458 @@
+{
+  "note": "Adversarial chat samples for evaluate-models.ts. Each one provokes a specific rule in SUMMARIZATION_PROMPT, so a weaker model fails it visibly instead of merely producing a blander summary. Synthetic: no real user data. Messages are ChatMessageForSummary records — the bot's own summarizeMessages() formats them, so this fixture never duplicates the prompt-facing layout.",
+  "samples": [
+    {
+      "name": "gaming-meetup",
+      "provokes": "EVENTS > GAMING > TOPICS priority: the meetup is about a game, so it belongs to events only, never gaming or topics",
+      "messages": [
+        {
+          "messageId": "1001",
+          "userName": "oleh",
+          "userFirstName": "Олег",
+          "userLastName": null,
+          "textContent": "хлопці, хто грав у нову Silent Hollow? враження?",
+          "hasPhoto": false,
+          "hasVideo": false,
+          "mediaDescription": null,
+          "createdAt": "2026-08-10T12:01:00.000Z"
+        },
+        {
+          "messageId": "1002",
+          "userName": "maryna",
+          "userFirstName": "Марина",
+          "userLastName": null,
+          "textContent": "пройшла перші три години, атмосфера топ, але оптимізація кульгає",
+          "hasPhoto": false,
+          "hasVideo": false,
+          "mediaDescription": null,
+          "createdAt": "2026-08-10T12:03:00.000Z"
+        },
+        {
+          "messageId": "1003",
+          "userName": "oleh",
+          "userFirstName": "Олег",
+          "userLastName": null,
+          "textContent": "у мене на 3060 просідає до 40 фпс у місті",
+          "hasPhoto": false,
+          "hasVideo": false,
+          "mediaDescription": null,
+          "createdAt": "2026-08-10T12:04:00.000Z"
+        },
+        {
+          "messageId": "1004",
+          "userName": "taras",
+          "userFirstName": "Тарас",
+          "userLastName": null,
+          "textContent": "патч обіцяли до кінця місяця, там і DLSS завезуть",
+          "hasPhoto": false,
+          "hasVideo": false,
+          "mediaDescription": null,
+          "createdAt": "2026-08-10T12:06:00.000Z"
+        },
+        {
+          "messageId": "1005",
+          "userName": "maryna",
+          "userFirstName": "Марина",
+          "userLastName": null,
+          "textContent": "до речі, може зберемось у суботу 15-го погамати разом?",
+          "hasPhoto": false,
+          "hasVideo": false,
+          "mediaDescription": null,
+          "createdAt": "2026-08-10T12:09:00.000Z"
+        },
+        {
+          "messageId": "1006",
+          "userName": "oleh",
+          "userFirstName": "Олег",
+          "userLastName": null,
+          "textContent": "я за, у мене вільно після 18:00",
+          "hasPhoto": false,
+          "hasVideo": false,
+          "mediaDescription": null,
+          "createdAt": "2026-08-10T12:10:00.000Z"
+        },
+        {
+          "messageId": "1007",
+          "userName": "taras",
+          "userFirstName": "Тарас",
+          "userLastName": null,
+          "textContent": "давайте у Марини, у неї проектор",
+          "hasPhoto": false,
+          "hasVideo": false,
+          "mediaDescription": null,
+          "createdAt": "2026-08-10T12:11:00.000Z"
+        },
+        {
+          "messageId": "1008",
+          "userName": "maryna",
+          "userFirstName": "Марина",
+          "userLastName": null,
+          "textContent": "ок, субота 15-го, 19:00, у мене. беріть свої джойстики",
+          "hasPhoto": false,
+          "hasVideo": false,
+          "mediaDescription": null,
+          "createdAt": "2026-08-10T12:12:00.000Z"
+        },
+        {
+          "messageId": "1009",
+          "userName": "ihor",
+          "userFirstName": "Ігор",
+          "userLastName": null,
+          "textContent": "а хто вже пробував мультиплеєр у Silent Hollow?",
+          "hasPhoto": false,
+          "hasVideo": false,
+          "mediaDescription": null,
+          "createdAt": "2026-08-10T12:20:00.000Z"
+        },
+        {
+          "messageId": "1010",
+          "userName": "taras",
+          "userFirstName": "Тарас",
+          "userLastName": null,
+          "textContent": "сервери порожні, знайти лоббі нереально",
+          "hasPhoto": false,
+          "hasVideo": false,
+          "mediaDescription": null,
+          "createdAt": "2026-08-10T12:22:00.000Z"
+        },
+        {
+          "messageId": "1011",
+          "userName": "oleh",
+          "userFirstName": "Олег",
+          "userLastName": null,
+          "textContent": "тому й кажу, треба локально збиратись",
+          "hasPhoto": false,
+          "hasVideo": false,
+          "mediaDescription": null,
+          "createdAt": "2026-08-10T12:25:00.000Z"
+        },
+        {
+          "messageId": "1012",
+          "userName": "ihor",
+          "userFirstName": "Ігор",
+          "userLastName": null,
+          "textContent": "окремо: хтось розбирається у податковій звітності для ФОП?",
+          "hasPhoto": false,
+          "hasVideo": false,
+          "mediaDescription": null,
+          "createdAt": "2026-08-10T12:40:00.000Z"
+        },
+        {
+          "messageId": "1013",
+          "userName": "maryna",
+          "userFirstName": "Марина",
+          "userLastName": null,
+          "textContent": "я здаю через Дію, там все просто",
+          "hasPhoto": false,
+          "hasVideo": false,
+          "mediaDescription": null,
+          "createdAt": "2026-08-10T12:42:00.000Z"
+        },
+        {
+          "messageId": "1014",
+          "userName": "ihor",
+          "userFirstName": "Ігор",
+          "userLastName": null,
+          "textContent": "дякую, спробую",
+          "hasPhoto": false,
+          "hasVideo": false,
+          "mediaDescription": null,
+          "createdAt": "2026-08-10T12:45:00.000Z"
+        }
+      ]
+    },
+    {
+      "name": "twin-topics",
+      "provokes": "Two distinct discussions that share vocabulary. A model that blurs them will produce two near-identical topic descriptions or cite the same ids twice.",
+      "messages": [
+        {
+          "messageId": "2001",
+          "userName": "anya",
+          "userFirstName": "Аня",
+          "userLastName": null,
+          "textContent": "вибираю ноутбук для роботи, дивлюсь на 14 дюймів",
+          "hasPhoto": false,
+          "hasVideo": false,
+          "mediaDescription": null,
+          "createdAt": "2026-08-10T09:15:00.000Z"
+        },
+        {
+          "messageId": "2002",
+          "userName": "dmytro",
+          "userFirstName": "Дмитро",
+          "userLastName": null,
+          "textContent": "бери з 32 гб, менше вже мало для докера",
+          "hasPhoto": false,
+          "hasVideo": false,
+          "mediaDescription": null,
+          "createdAt": "2026-08-10T09:16:00.000Z"
+        },
+        {
+          "messageId": "2003",
+          "userName": "anya",
+          "userFirstName": "Аня",
+          "userLastName": null,
+          "textContent": "там ціна відразу стрибає на 400 доларів",
+          "hasPhoto": false,
+          "hasVideo": false,
+          "mediaDescription": null,
+          "createdAt": "2026-08-10T09:18:00.000Z"
+        },
+        {
+          "messageId": "2004",
+          "userName": "dmytro",
+          "userFirstName": "Дмитро",
+          "userLastName": null,
+          "textContent": "зате проживе довше, я свій третій рік ганяю",
+          "hasPhoto": false,
+          "hasVideo": false,
+          "mediaDescription": null,
+          "createdAt": "2026-08-10T09:20:00.000Z"
+        },
+        {
+          "messageId": "2005",
+          "userName": "anya",
+          "userFirstName": "Аня",
+          "userLastName": null,
+          "textContent": "ок, буду дивитись на 32",
+          "hasPhoto": false,
+          "hasVideo": false,
+          "mediaDescription": null,
+          "createdAt": "2026-08-10T09:22:00.000Z"
+        },
+        {
+          "messageId": "2006",
+          "userName": "serhii",
+          "userFirstName": "Сергій",
+          "userLastName": null,
+          "textContent": "а я вибираю ноутбук доньці в школу, бюджет 500",
+          "hasPhoto": false,
+          "hasVideo": false,
+          "mediaDescription": null,
+          "createdAt": "2026-08-10T11:40:00.000Z"
+        },
+        {
+          "messageId": "2007",
+          "userName": "dmytro",
+          "userFirstName": "Дмитро",
+          "userLastName": null,
+          "textContent": "за 500 бери вживаний бізнес-клас, буде надійніше нового",
+          "hasPhoto": false,
+          "hasVideo": false,
+          "mediaDescription": null,
+          "createdAt": "2026-08-10T11:41:00.000Z"
+        },
+        {
+          "messageId": "2008",
+          "userName": "serhii",
+          "userFirstName": "Сергій",
+          "userLastName": null,
+          "textContent": "боюсь батарею вбиту підсунуть",
+          "hasPhoto": false,
+          "hasVideo": false,
+          "mediaDescription": null,
+          "createdAt": "2026-08-10T11:43:00.000Z"
+        },
+        {
+          "messageId": "2009",
+          "userName": "anya",
+          "userFirstName": "Аня",
+          "userLastName": null,
+          "textContent": "проси показати цикл зарядки перед покупкою",
+          "hasPhoto": false,
+          "hasVideo": false,
+          "mediaDescription": null,
+          "createdAt": "2026-08-10T11:45:00.000Z"
+        },
+        {
+          "messageId": "2010",
+          "userName": "serhii",
+          "userFirstName": "Сергій",
+          "userLastName": null,
+          "textContent": "слушно, дякую",
+          "hasPhoto": false,
+          "hasVideo": false,
+          "mediaDescription": null,
+          "createdAt": "2026-08-10T11:47:00.000Z"
+        },
+        {
+          "messageId": "2011",
+          "userName": "dmytro",
+          "userFirstName": "Дмитро",
+          "userLastName": null,
+          "textContent": "хтось бачив, що кава в автоматі знову подорожчала?",
+          "hasPhoto": false,
+          "hasVideo": false,
+          "mediaDescription": null,
+          "createdAt": "2026-08-10T14:02:00.000Z"
+        },
+        {
+          "messageId": "2012",
+          "userName": "anya",
+          "userFirstName": "Аня",
+          "userLastName": null,
+          "textContent": "тридцять гривень за помиї, я перейшла на свою турку",
+          "hasPhoto": false,
+          "hasVideo": false,
+          "mediaDescription": null,
+          "createdAt": "2026-08-10T14:03:00.000Z"
+        },
+        {
+          "messageId": "2013",
+          "userName": "serhii",
+          "userFirstName": "Сергій",
+          "userLastName": null,
+          "textContent": "підтримую, приніс собі френч-прес",
+          "hasPhoto": false,
+          "hasVideo": false,
+          "mediaDescription": null,
+          "createdAt": "2026-08-10T14:05:00.000Z"
+        }
+      ]
+    },
+    {
+      "name": "memes-and-dateless-plan",
+      "provokes": "Meme content that looks like a topic, plus a plan with no stated date — the prompt requires the event to say the date is missing rather than omit it.",
+      "messages": [
+        {
+          "messageId": "3001",
+          "userName": "vlad",
+          "userFirstName": "Влад",
+          "userLastName": null,
+          "textContent": "[фото] кіт у шоломі будівельника",
+          "hasPhoto": true,
+          "hasVideo": false,
+          "mediaDescription": null,
+          "createdAt": "2026-08-10T20:01:00.000Z"
+        },
+        {
+          "messageId": "3002",
+          "userName": "liza",
+          "userFirstName": "Ліза",
+          "userLastName": null,
+          "textContent": "це вже третій кіт у касці за тиждень, тренд",
+          "hasPhoto": false,
+          "hasVideo": false,
+          "mediaDescription": null,
+          "createdAt": "2026-08-10T20:02:00.000Z"
+        },
+        {
+          "messageId": "3003",
+          "userName": "vlad",
+          "userFirstName": "Влад",
+          "userLastName": null,
+          "textContent": "[фото] той самий кіт, але тепер з рулеткою",
+          "hasPhoto": true,
+          "hasVideo": false,
+          "mediaDescription": null,
+          "createdAt": "2026-08-10T20:03:00.000Z"
+        },
+        {
+          "messageId": "3004",
+          "userName": "liza",
+          "userFirstName": "Ліза",
+          "userLastName": null,
+          "textContent": "хтось явно робить серію, я в захваті",
+          "hasPhoto": false,
+          "hasVideo": false,
+          "mediaDescription": null,
+          "createdAt": "2026-08-10T20:05:00.000Z"
+        },
+        {
+          "messageId": "3005",
+          "userName": "maks",
+          "userFirstName": "Максим",
+          "userLastName": null,
+          "textContent": "[відео] собака ремонтує розетку, той самий стиль",
+          "hasPhoto": false,
+          "hasVideo": true,
+          "mediaDescription": null,
+          "createdAt": "2026-08-10T20:07:00.000Z"
+        },
+        {
+          "messageId": "3006",
+          "userName": "liza",
+          "userFirstName": "Ліза",
+          "userLastName": null,
+          "textContent": "треба колись зібратись і зробити свою серію мемів",
+          "hasPhoto": false,
+          "hasVideo": false,
+          "mediaDescription": null,
+          "createdAt": "2026-08-10T20:10:00.000Z"
+        },
+        {
+          "messageId": "3007",
+          "userName": "vlad",
+          "userFirstName": "Влад",
+          "userLastName": null,
+          "textContent": "давайте, я готовий, тільки не кажіть коли",
+          "hasPhoto": false,
+          "hasVideo": false,
+          "mediaDescription": null,
+          "createdAt": "2026-08-10T20:11:00.000Z"
+        },
+        {
+          "messageId": "3008",
+          "userName": "maks",
+          "userFirstName": "Максим",
+          "userLastName": null,
+          "textContent": "домовились, зберемось якось",
+          "hasPhoto": false,
+          "hasVideo": false,
+          "mediaDescription": null,
+          "createdAt": "2026-08-10T20:12:00.000Z"
+        },
+        {
+          "messageId": "3009",
+          "userName": "liza",
+          "userFirstName": "Ліза",
+          "userLastName": null,
+          "textContent": "до речі хтось читав про новий закон щодо оренди?",
+          "hasPhoto": false,
+          "hasVideo": false,
+          "mediaDescription": null,
+          "createdAt": "2026-08-10T21:30:00.000Z"
+        },
+        {
+          "messageId": "3010",
+          "userName": "maks",
+          "userFirstName": "Максим",
+          "userLastName": null,
+          "textContent": "побіжно, там про індексацію платежів",
+          "hasPhoto": false,
+          "hasVideo": false,
+          "mediaDescription": null,
+          "createdAt": "2026-08-10T21:33:00.000Z"
+        },
+        {
+          "messageId": "3011",
+          "userName": "vlad",
+          "userFirstName": "Влад",
+          "userLastName": null,
+          "textContent": "мене це прямо зачіпає, орендую другий рік",
+          "hasPhoto": false,
+          "hasVideo": false,
+          "mediaDescription": null,
+          "createdAt": "2026-08-10T21:35:00.000Z"
+        }
+      ]
+    }
+  ],
+  "images": [
+    {
+      "name": "meme",
+      "path": ".claude/skills/update-openai-pricing/fixtures/meme.png",
+      "provokes": "A countryballs meme with a two-line Russian caption: a request and a sarcastic retort. The prompt demands Ukrainian, 1-3 sentences, that a meme is named as one, and that the caption is carried over accurately. The joke lives in the retort, so a description that relays only the request has dropped the point of the image.",
+      "expect": {
+        "meme": true,
+        "ukrainian": true,
+        "maxSentences": 3,
+        "mentions": [
+          ["НАТО"],
+          ["трьох", "троих", "три"],
+          ["всех что ли", "всіх чи що", "усіх чи що", "прям всех", "прямо всех", "прям усіх", "прям всіх", "прямо всіх"]
+        ]
+      }
+    }
+  ]
+}

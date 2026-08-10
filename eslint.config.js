@@ -6,7 +6,7 @@ import { defineConfig } from 'eslint/config';
 
 export default defineConfig(
   {
-    ignores: ['**/dist/**', '**/data/**', '**/coverage/**'],
+    ignores: ['**/dist/**', '**/data/**', '**/coverage/**', '**/.claude/**'],
   },
   eslint.configs.recommended,
   {

@@ -1,5 +1,6 @@
 .env
 .env.*.local
+settings.local.json
 docker-compose.override.yml
 
 node_modules

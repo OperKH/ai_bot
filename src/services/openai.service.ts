@@ -258,7 +258,7 @@ export class OpenAIService {
 
     const response = await this.getClient('Summarize Messages').chat.completions.parse({
       model,
-      reasoning_effort: 'low',
+      reasoning_effort: this.configService.get('OPENAI_REASONING_EFFORT'),
       messages: [
         { role: 'system', content: SUMMARIZATION_PROMPT },
         { role: 'user', content: `Ось історія чату для аналізу:\n\n${formattedMessages}` },
@@ -308,7 +308,7 @@ export class OpenAIService {
 
     const response = await this.getClient('Aggregate Summarization Results').chat.completions.parse({
       model,
-      reasoning_effort: 'low',
+      reasoning_effort: this.configService.get('OPENAI_REASONING_EFFORT'),
       messages: [
         {
           role: 'system',
@@ -393,7 +393,7 @@ export class OpenAIService {
 
     const response = await this.getClient('Describe Image').chat.completions.create({
       model,
-      reasoning_effort: 'minimal',
+      reasoning_effort: this.configService.get('OPENAI_VISION_REASONING_EFFORT'),
       messages: [
         {
           role: 'user',

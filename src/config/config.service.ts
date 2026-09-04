@@ -33,6 +33,7 @@ export class ConfigService {
     TG_API_ID: parseInt(process.env.TG_API_ID || '', 10),
     TG_API_HASH: process.env.TG_API_HASH || '',
     TG_API_SESSION: process.env.TG_API_SESSION || '',
+    TG_UPDATE_CONCURRENCY: parseInt(process.env.TG_UPDATE_CONCURRENCY || '', 10) || 1,
     DB_HOST: process.env.DB_HOST || 'localhost',
     DB_PORT: parseInt(process.env.DB_PORT || '', 10) || 5432,
     DB_NAME: process.env.DB_NAME || 'ai_bot',

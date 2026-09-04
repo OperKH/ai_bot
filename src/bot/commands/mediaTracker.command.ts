@@ -1,4 +1,4 @@
-import { Context, NarrowedContext } from 'telegraf';
+import { Context, NarrowedContext, Types } from 'telegraf';
 import { CallbackQuery, InlineKeyboardMarkup, Message, Update } from 'telegraf/types';
 import { message } from 'telegraf/filters';
 import { TelegramClient, Api, sessions } from 'telegram';
@@ -8,6 +8,9 @@ import { AIService } from '../../services/ai.service';
 import { VideoService } from '../../services/video.service';
 import { ChatPhotoMessage, ChatState, IgnoredMedia } from '../../entity/index';
 import { getLinkChatId } from '../../utils/telegram.utils.js';
+
+/** Media messages added during an import, plus the chat's media count afterwards */
+type ImportStats = { photos: number; videos: number; total: number };
 
 export class MediaTrackerCommand extends Command {
   public command = 'searchmedia';
@@ -330,8 +333,7 @@ export class MediaTrackerCommand extends Command {
 
   private async searchAndReplyPaginated(
     ctx:
-      | NarrowedContext<IBotContext, Update.MessageUpdate<Message>>
-      | Context<Update.CallbackQueryUpdate<CallbackQuery>>,
+      NarrowedContext<IBotContext, Update.MessageUpdate<Message>> | Context<Update.CallbackQueryUpdate<CallbackQuery>>,
     chatId: number,
     firstMessageId: number | undefined,
     text: string,
@@ -422,7 +424,9 @@ export class MediaTrackerCommand extends Command {
     }
   }
 
-  private async startHistoryImport(ctx: NarrowedContext<IBotContext, Update.MessageUpdate<Message>>) {
+  private async startHistoryImport(
+    ctx: NarrowedContext<IBotContext, Update.MessageUpdate<Message>> & Types.CommandContextExtn,
+  ) {
     const messageId = ctx.message.message_id;
     if (this.isMediaImporting) {
       await ctx.reply('😡 Я тут працюю, тужуся, а ти відволікаєш.', {
@@ -430,6 +434,9 @@ export class MediaTrackerCommand extends Command {
       });
       return;
     }
+
+    const importWindow = this.parseImportWindow(ctx.payload);
+
     this.isMediaImporting = true;
     try {
       const chatId = ctx.chat.id;
@@ -438,42 +445,8 @@ export class MediaTrackerCommand extends Command {
       const isMediaImported = chatState?.isMediaImported ?? false;
       const isVideoImportedByFrames = chatState?.isVideoImportedByFrames ?? false;
 
-      // Check if all work is done
-      if (isMediaImported && isVideoImportedByFrames) {
-        await ctx.reply('🍧 Нема потреби. Усе вже зроблено.', {
-          reply_parameters: { message_id: messageId },
-        });
-        return;
-      }
-
-      // Case 1: Need to import all media (photos + videos)
-      if (!isMediaImported) {
-        await ctx.reply('🏃 Взяв у роботу! Імпортую всю історію...', {
-          reply_parameters: { message_id: messageId },
-        });
-
-        const chatPhotoMessageRepository = this.dataSource.getRepository(ChatPhotoMessage);
-        const [latestChatPhotoMessage] = await chatPhotoMessageRepository.find({
-          where: { chatId: String(chatId) },
-          order: { messageId: 'DESC' },
-          take: 1,
-        });
-        const lastImportedMessageId = latestChatPhotoMessage ? Number(latestChatPhotoMessage.messageId) : 0;
-        await this.importChatMessages(chatId, lastImportedMessageId, messageId);
-
-        // Save state
-        const newChatState = new ChatState();
-        newChatState.chatId = String(chatId);
-        newChatState.isMediaImported = true;
-        newChatState.isVideoImportedByFrames = true;
-        await chatStateRepository.save(newChatState);
-
-        await ctx.reply('😮‍💨 Фух... Усе підтягнув!', {
-          reply_parameters: { message_id: messageId },
-        });
-      }
       // Case 2: Need to reindex videos only
-      else if (isMediaImported && !isVideoImportedByFrames) {
+      if (isMediaImported && !isVideoImportedByFrames) {
         await ctx.reply('🎬 Переіндексовую відео з новим форматом (по кадрах)...', {
           reply_parameters: { message_id: messageId },
         });
@@ -481,17 +454,56 @@ export class MediaTrackerCommand extends Command {
         // Reindex videos with frames
         // Note: old video entries (imported from thumbnails with mediaType='photo')
         // will be deleted automatically in importChatMessages for each message
-        await this.importChatMessages(chatId, 0, messageId, new Api.InputMessagesFilterVideo());
+        const stats = await this.importChatMessages(chatId, messageId, { filter: new Api.InputMessagesFilterVideo() });
 
-        // Update state
-        const chatStateRepository = this.dataSource.getRepository(ChatState);
         chatState!.isVideoImportedByFrames = true;
         await chatStateRepository.save(chatState!);
 
-        await ctx.reply('😮‍💨 Відео переіндексовано!', {
+        await ctx.reply(`😮‍💨 Відео переіндексовано!\n${this.formatImportStats(stats)}`, {
           reply_parameters: { message_id: messageId },
         });
+        return;
       }
+
+      // Case 3: already imported. A gap-fill pass has to be asked for
+      // explicitly — with a window or `all` — so a stray command does not
+      // re-walk the whole history.
+      if (isMediaImported && importWindow === undefined) {
+        await ctx.reply(
+          '🍧 Нема потреби. Усе вже зроблено.\n' +
+            'ℹ️ Дошукати пропущені медіа: /starthistoryimport 30 (за 30 днів) або /starthistoryimport all (уся історія).',
+          { reply_parameters: { message_id: messageId } },
+        );
+        return;
+      }
+
+      // Case 1 (never imported) and Case 3 (already imported) share the same
+      // gap-fill pass: walk the chat's media and embed only what the DB lacks.
+      // Live handlers keep writing to the DB regardless of import state, so
+      // resuming from max(messageId) would skip everything older than the
+      // newest live message — hence no cursor, only the skip set.
+      const sinceDays = typeof importWindow === 'number' ? importWindow : undefined;
+      const windowLabel = sinceDays ? `за останні ${sinceDays} дн.` : 'за всю історію';
+      await ctx.reply(
+        isMediaImported
+          ? `🧹 Шукаю пропущені медіа ${windowLabel}...`
+          : `🏃 Взяв у роботу! Імпортую медіа ${windowLabel}...`,
+        { reply_parameters: { message_id: messageId } },
+      );
+
+      const stats = await this.importChatMessages(chatId, messageId, { sinceDays });
+
+      if (!isMediaImported) {
+        const newChatState = new ChatState();
+        newChatState.chatId = String(chatId);
+        newChatState.isMediaImported = true;
+        newChatState.isVideoImportedByFrames = true;
+        await chatStateRepository.save(newChatState);
+      }
+
+      await ctx.reply(this.formatImportResult(stats), {
+        reply_parameters: { message_id: messageId },
+      });
     } catch (e) {
       console.log(e);
       await ctx.reply('📛 Халепа!', {
@@ -616,51 +628,140 @@ export class MediaTrackerCommand extends Command {
     return this.chatCountCache;
   }
 
+  /**
+   * `/starthistoryimport` takes an optional window: a positive number of days,
+   * or `all` for the whole history. Anything else counts as no argument.
+   */
+  private parseImportWindow(payload: string): number | 'all' | undefined {
+    const arg = payload.trim().toLowerCase();
+    if (arg === 'all') return 'all';
+    const days = Number(arg);
+    return arg && Number.isInteger(days) && days > 0 ? days : undefined;
+  }
+
+  private formatImportStats({ photos, videos, total }: ImportStats): string {
+    const added = photos + videos;
+    // No breakdown when nothing was added — "0 (📷 0, 🎬 0)" is just noise
+    const addedLine = added > 0 ? `📥 Додано: ${added} (📷 ${photos}, 🎬 ${videos})` : '📥 Додано: 0';
+    return `${addedLine}\n🗂 Усього в базі: ${total}`;
+  }
+
+  /**
+   * Headline scaled to the work done. A video costs a download plus five
+   * frames, so it weighs more than a photo when picking the tone.
+   */
+  private formatImportResult(stats: ImportStats): string {
+    const { photos, videos } = stats;
+    const effort = photos + videos * 5;
+    let headline: string;
+    if (effort === 0) headline = '🤷 Нічого нового — усе вже було на місці.';
+    else if (effort <= 20) headline = '😌 Легко! Кілька штук — і готово.';
+    else if (effort <= 200) headline = '💪 Непогано попрацював.';
+    else if (effort <= 2000) headline = '😮‍💨 Фух... Усе підтягнув!';
+    else if (effort < 10_000) headline = '🥵 Оце була робота! Ледь не впав.';
+    else headline = '🏋️ Це був справжній марафон.';
+    return `${headline}\n${this.formatImportStats(stats)}`;
+  }
+
+  /**
+   * Resolves the id of the newest message older than `sinceDays`, so a date
+   * window can be walked with the well-trodden `offsetId + reverse` path.
+   * `offsetDate` is not passed to the filtered iterator on purpose: gramjs maps
+   * it to `maxDate` of `messages.Search`, whose meaning under `reverse` is murky.
+   */
+  private async resolveMessageIdBeforeDays(chatId: number, sinceDays: number): Promise<number> {
+    const offsetDate = Math.floor(Date.now() / 1000) - sinceDays * 24 * 60 * 60; // unix seconds
+    const [message] = await this.tgClient!.getMessages(chatId, { limit: 1, offsetDate });
+    return message?.id ?? 0;
+  }
+
+  /**
+   * Walks the chat's media and embeds what the DB lacks. Returns how many
+   * messages were added by type plus the chat's total media count afterwards.
+   *
+   * A message is skipped when it already has rows of the media type being
+   * walked. For the videos-only walk that means `mediaType='video'`, so legacy
+   * thumbnail rows (`mediaType='photo'`) do not count and get replaced — which
+   * also makes the reindex resumable after a crash.
+   *
+   * @param options.sinceDays - Only look at messages from the last N days; default is the whole history
+   * @param options.filter - Which media to walk; default is photos + videos
+   */
   private async importChatMessages(
     chatId: number,
-    lastImportedMessageId: number,
     lastMessageId: number,
-    filter: Api.TypeMessagesFilter = new Api.InputMessagesFilterPhotoVideo(),
-  ): Promise<void> {
+    options: { sinceDays?: number; filter?: Api.TypeMessagesFilter } = {},
+  ): Promise<ImportStats> {
+    const { sinceDays, filter = new Api.InputMessagesFilterPhotoVideo() } = options;
+    const chatPhotoMessageRepository = this.dataSource.getRepository(ChatPhotoMessage);
+    const added = { photos: 0, videos: 0 };
+
     const apiId = this.configService.get('TG_API_ID');
     const apiHash = this.configService.get('TG_API_HASH');
     const stringSession = new sessions.StringSession(this.configService.get('TG_API_SESSION'));
     this.tgClient = new TelegramClient(stringSession, apiId, apiHash, { connectionRetries: 5 });
     await this.tgClient.connect();
 
-    for await (const message of this.tgClient.iterMessages(chatId, {
-      offsetId: lastImportedMessageId,
-      reverse: true,
-      filter,
-    })) {
-      if (message.video) {
-        try {
-          // Delete old video entries for this message (in case of reindexing)
-          await this.dataSource.getRepository(ChatPhotoMessage).delete({
-            chatId: String(chatId),
-            messageId: String(message.id),
-          });
+    try {
+      const offsetId = sinceDays ? await this.resolveMessageIdBeforeDays(chatId, sinceDays) : 0;
 
-          const chatPhotoMessages = await this.processVideoFromApi(message.video, chatId, message.id, lastMessageId);
-          if (chatPhotoMessages.length > 0) {
-            await this.dataSource.manager.save(chatPhotoMessages);
+      // Only ids the walk can meet: newer than the window start, of the walked media type
+      const existingQuery = chatPhotoMessageRepository
+        .createQueryBuilder('msg')
+        .select('DISTINCT msg.messageId', 'messageId')
+        .where('msg.chatId = :chatId', { chatId: String(chatId) })
+        .andWhere('msg.messageId > :offsetId', { offsetId });
+      if (filter instanceof Api.InputMessagesFilterVideo) {
+        existingQuery.andWhere('msg.mediaType = :mediaType', { mediaType: 'video' });
+      }
+      const existingRows = await existingQuery.getRawMany<{ messageId: string }>();
+      const existingMessageIds = new Set(existingRows.map(({ messageId }) => Number(messageId)));
+
+      for await (const message of this.tgClient.iterMessages(chatId, { offsetId, reverse: true, filter })) {
+        if (existingMessageIds.has(message.id)) continue;
+
+        if (message.video) {
+          try {
+            // Replace legacy thumbnail rows when reindexing; a no-op on a plain gap-fill
+            await chatPhotoMessageRepository.delete({
+              chatId: String(chatId),
+              messageId: String(message.id),
+            });
+
+            const chatPhotoMessages = await this.processVideoFromApi(message.video, chatId, message.id, lastMessageId);
+            if (chatPhotoMessages.length > 0) {
+              await this.dataSource.manager.save(chatPhotoMessages);
+              added.videos++;
+            }
+          } catch (e) {
+            console.log(chatId, message.id, 'video', e);
           }
-        } catch (e) {
-          console.log(chatId, message.id, 'video', e);
-        }
-      } else if (message.photo) {
-        try {
-          const photo = message.photo as Api.Photo;
-          const chatPhotoMessage = await this.processPhotoFromApi(photo, chatId, message.id, lastMessageId);
-          if (chatPhotoMessage) {
-            await this.dataSource.manager.save(chatPhotoMessage);
+        } else if (message.photo) {
+          try {
+            const photo = message.photo as Api.Photo;
+            const chatPhotoMessage = await this.processPhotoFromApi(photo, chatId, message.id, lastMessageId);
+            if (chatPhotoMessage) {
+              await this.dataSource.manager.save(chatPhotoMessage);
+              added.photos++;
+            }
+          } catch (e) {
+            console.log(chatId, message.id, 'photo', e);
           }
-        } catch (e) {
-          console.log(chatId, message.id, 'photo', e);
         }
       }
+    } finally {
+      await this.tgClient.destroy();
+      this.tgClient = null;
     }
-    await this.tgClient.destroy();
+
+    // Video frames share a messageId, so count messages rather than rows
+    const totalRow = await chatPhotoMessageRepository
+      .createQueryBuilder('msg')
+      .select('COUNT(DISTINCT msg.messageId)', 'count')
+      .where('msg.chatId = :chatId', { chatId: String(chatId) })
+      .getRawOne<{ count: string }>();
+
+    return { ...added, total: parseInt(totalRow?.count ?? '0', 10) };
   }
 
   async dispose() {

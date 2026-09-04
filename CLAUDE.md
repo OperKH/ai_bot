@@ -69,6 +69,21 @@ The bot uses a command-based architecture where each feature is implemented as a
 - Each command implements `handle()` for setup and `dispose()` for cleanup
 - Commands have access to `bot`, `dataSource`, and `configService`
 
+### Update Queue and Telegram API Guard
+
+Both live in [bot.class.ts](src/bot/bot.class.ts):
+
+- **Update queue**: Telegraf handles a whole `getUpdates` batch (up to 100 updates) through `Promise.all`,
+  so after downtime the backlog would mean dozens of concurrent Whisper/CLIP runs and a burst of replies.
+  The first middleware gates every update through a `Semaphore` ([semaphore.utils.ts](src/utils/semaphore.utils.ts))
+  sized by `TG_UPDATE_CONCURRENCY` (default 1 = strictly sequential). Background work started from a
+  handler without `await` (e.g. `/starthistoryimport`) releases its slot immediately.
+- **`callApi` wrapper**: every outgoing call (`ctx.reply`, `ctx.react`, `getFileLink`, …) goes through
+  `Telegram.callApi`, which is wrapped once at startup. On 429 it sleeps for Telegram's `retry_after`
+  and retries (up to 5 times); the sleep holds the caller's semaphore slot, so the whole queue pauses.
+  It also counts calls per method and logs `Telegram API: N calls/min (...)` every minute while the bot
+  is doing anything.
+
 ### Singleton Services
 
 Core services use the singleton pattern:
@@ -248,33 +263,48 @@ The sphere operator `<<=>>` checks if embedding is within a sphere of given radi
 
 ### History Import and Video Reindexing
 
-The `/starthistoryimport` command uses the telegram library (not Telegraf) and handles two scenarios:
+The `/starthistoryimport [days|all]` command uses the telegram library (not Telegraf). Its import is a
+**gap-fill pass**: it walks the chat's media and embeds only messages the DB does not have yet. There
+is no cursor like "resume from `max(messageId)`" — live handlers write to the DB regardless of import
+state, so after a downtime the newest rows are fresh live messages and the gap sits _below_ them.
+Skipping by the set of existing `messageId`s is what makes the pass safe to run at any time.
 
-**Scenario 1: Initial Import** (`!isMediaImported`)
+The argument picks the window: a positive number of days (`/starthistoryimport 60`) or `all` for the
+whole history; anything else counts as no argument. Skipped messages cost only the MTProto paging
+(100 per request), no download or ML.
 
-- Iterate through chat history using `iterMessages()` with `InputMessagesFilterPhotoVideo`
+| Argument     | Never imported      | Already imported               |
+| ------------ | ------------------- | ------------------------------ |
+| none/invalid | full import         | "🍧 Нема потреби" + usage hint |
+| `60`         | import last 60 days | gap-fill last 60 days          |
+| `all`        | full import         | gap-fill whole history         |
+
+**Scenario 1: Initial Import** (`!isMediaImported`) and **Scenario 3: Gap Fill** (`isMediaImported && isVideoImportedByFrames`, argument required)
+
+- Load the chat's existing `messageId`s into a `Set`
+- Iterate through chat history using `iterMessages()` with `InputMessagesFilterPhotoVideo`, skipping ids in the set
 - For photos: download and generate single CLIP embedding
 - For videos: download full video, extract 5 frames, generate embeddings for each
-- Bulk insert into database
-- Set both `isMediaImported=true` and `isVideoImportedByFrames=true`
+- Scenario 1 additionally sets `isMediaImported=true` and `isVideoImportedByFrames=true`
 
 **Scenario 2: Video Reindexing** (`isMediaImported && !isVideoImportedByFrames`)
 
 - Triggered when videos were previously imported using old method (thumbnails only)
-- Iterate through chat history using `InputMessagesFilterVideo` (videos only)
+- Iterate through chat history using `InputMessagesFilterVideo` (videos only); the skip set is built from
+  `mediaType='video'` rows only, so legacy thumbnail rows do not count and the reindex is resumable
 - For each video:
   - Delete old entries (single thumbnail embedding with `mediaType='photo'`)
   - Download full video and extract 5 frames at consistent positions
   - Generate and store 5 new embeddings with `mediaType='video'`
 - Set `isVideoImportedByFrames=true`
 
-**Scenario 3: All Done** (`isMediaImported && isVideoImportedByFrames`)
-
-- Reply that work is already complete
-
 **Implementation Details:**
 
 - Runs in background with `isMediaImporting` flag to prevent concurrent imports
+- The reply reports added photos/videos and the chat's total media count (`ImportStats`)
+- The `days` window is resolved to a message id via an unfiltered `iterMessages({ limit: 1, offsetDate })`
+  and then walked with `offsetId + reverse` — `offsetDate` is not passed to the filtered iterator
+  because gramjs maps it to `maxDate` of `messages.Search`, whose meaning under `reverse` is unclear
 - Frame extraction uses `VideoService.extractFramesFromBuffer()`
 - Old video entries are automatically deleted before saving new ones in `importChatMessages()`
 - Both `processVideoFromApi()` and `processPhotoFromApi()` methods handle the respective media types
@@ -293,6 +323,9 @@ Environment variables (see [.env.example](.env.example)):
 
 - `TG_TOKEN`: Telegram bot token from BotFather
 - `TG_API_ID`, `TG_API_HASH`, `TG_API_SESSION`: Telegram client credentials for history import
+- `TG_UPDATE_CONCURRENCY`: How many incoming updates are handled at once (default 1). ML inference is
+  CPU-bound, so raising it mostly trades memory for little throughput; keep it at 1–2 unless the box is
+  large
 - `DB_*`: PostgreSQL connection settings
 - `MATCH_TEXT_THRESHOLD`: Cosine similarity threshold for text search (default 0.24)
 - `MATCH_IMAGE_THRESHOLD`: Threshold for image similarity (default 0.96)

@@ -1,7 +1,7 @@
 import { Context, NarrowedContext, Types } from 'telegraf';
 import { CallbackQuery, InlineKeyboardMarkup, Message, Update } from 'telegraf/types';
 import { message } from 'telegraf/filters';
-import { TelegramClient, Api, sessions } from 'telegram';
+import { TelegramClient, Api, sessions, errors } from 'telegram';
 import { Command } from './command.class';
 import { IBotContext } from '../context/context.interface';
 import { AIService } from '../../services/ai.service';
@@ -582,6 +582,68 @@ export class MediaTrackerCommand extends Command {
   }
 
   /**
+   * A `file_reference` has a lifetime, and the one that arrives with a
+   * `messages.Search` page is already dead for part of the older media by the
+   * time the walk reaches it — `upload.GetFile` then answers FILE_REFERENCE_EXPIRED.
+   * Telegram's remedy is to ask for the message again: the same file comes back
+   * with a fresh reference. One retry is enough, a reference seconds old does
+   * not expire twice.
+   *
+   * Unlike the 429 handling in `wrapCallApi`, this cannot sit in a wrapper
+   * around the client: recovering needs the message the file came from, which
+   * only the caller knows.
+   */
+  private async downloadMedia(media: Api.Photo | Api.Document, chatId: number, messageId: number) {
+    try {
+      return await this.downloadMediaFile(media);
+    } catch (e) {
+      if (!MediaTrackerCommand.isFileReferenceExpired(e)) throw e;
+      const [message] = await this.tgClient!.getMessages(chatId, { ids: [messageId] });
+      const fresh = media instanceof Api.Photo ? message?.photo : message?.video;
+      // The message can be gone by now, or no longer carry media of this kind
+      if (!(fresh instanceof Api.Photo || fresh instanceof Api.Document)) return null;
+      console.log(`Refreshed the file reference of ${chatId} ${messageId}`);
+      return this.downloadMediaFile(fresh);
+    }
+  }
+
+  private async downloadMediaFile(media: Api.Photo | Api.Document) {
+    const { id, fileReference, accessHash } = media;
+    const thumb = media instanceof Api.Photo ? media.sizes.at(-1) : undefined;
+    const location =
+      media instanceof Api.Photo
+        ? new Api.InputPhotoFileLocation({ id, fileReference, accessHash, thumbSize: thumb?.type ?? 'm' })
+        : new Api.InputDocumentFileLocation({ id, fileReference, accessHash, thumbSize: '' });
+    const buffer = await this.tgClient!.downloadFile(location);
+    if (!(buffer instanceof Buffer)) return null;
+
+    // A short download still parses: a truncated mp4 makes ffprobe fail with
+    // "moov atom not found", or yields a duration and then loses every frame to
+    // the missing media data. Comparing against the byte count Telegram already
+    // stated names the failure instead of leaving it to the decoder, and the
+    // next gap-fill pass retries the message.
+    const expectedSize = media instanceof Api.Photo ? MediaTrackerCommand.photoSizeBytes(thumb) : Number(media.size);
+    if (expectedSize !== undefined && buffer.length !== expectedSize) {
+      throw new Error(`Truncated download: got ${buffer.length} of ${expectedSize} bytes`);
+    }
+    return buffer;
+  }
+
+  /**
+   * Only a plain `PhotoSize` states the bytes of the file that gets downloaded.
+   * A progressive one lists the prefix length of each scan instead, so it is
+   * left unchecked rather than guessed at — a wrong expectation here would
+   * reject every photo it applies to.
+   */
+  private static photoSizeBytes(thumb: Api.TypePhotoSize | undefined): number | undefined {
+    return thumb instanceof Api.PhotoSize ? thumb.size : undefined;
+  }
+
+  private static isFileReferenceExpired(error: unknown): boolean {
+    return error instanceof errors.RPCError && error.errorMessage === 'FILE_REFERENCE_EXPIRED';
+  }
+
+  /**
    * Process a video message from Telegram API and return ChatPhotoMessage entities
    */
   private async processVideoFromApi(
@@ -591,11 +653,9 @@ export class MediaTrackerCommand extends Command {
     lastMessageId: number,
   ): Promise<ChatPhotoMessage[]> {
     const t1 = performance.now();
-    const { id, fileReference, accessHash } = videoApi;
-    const fileLocation = new Api.InputDocumentFileLocation({ id, fileReference, accessHash, thumbSize: '' });
-    const videoBuffer = await this.tgClient!.downloadFile(fileLocation);
+    const videoBuffer = await this.downloadMedia(videoApi, chatId, messageId);
 
-    if (!(videoBuffer instanceof Buffer)) {
+    if (!videoBuffer) {
       return [];
     }
 
@@ -644,12 +704,9 @@ export class MediaTrackerCommand extends Command {
     lastMessageId: number,
   ): Promise<ChatPhotoMessage | null> {
     const t1 = performance.now();
-    const { id, fileReference, accessHash } = photoApi;
-    const thumbSize = photoApi.sizes.at(-1)?.type ?? 'm';
-    const fleLocation = new Api.InputPhotoFileLocation({ id, fileReference, accessHash, thumbSize });
-    const imageBuffer = await this.tgClient!.downloadFile(fleLocation);
+    const imageBuffer = await this.downloadMedia(photoApi, chatId, messageId);
 
-    if (!(imageBuffer instanceof Buffer)) {
+    if (!imageBuffer) {
       return null;
     }
 

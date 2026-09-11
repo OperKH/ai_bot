@@ -101,13 +101,14 @@ export class VideoService {
             timestamp,
             buffer: frameBuffer,
           });
-
-          // Clean up frame file
+        } catch (err) {
+          console.error(`Failed to extract frame ${i} at ${timestamp}s:`, err);
+        } finally {
+          // A failed run usually writes nothing, but ffmpeg can still leave a
+          // partial file behind, so the cleanup covers both paths
           await fs.unlink(outputPath).catch(() => {
             /* ignore */
           });
-        } catch (err) {
-          console.error(`Failed to extract frame ${i} at ${timestamp}s:`, err);
         }
       }
 

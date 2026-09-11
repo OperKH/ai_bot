@@ -47,6 +47,30 @@ export class Bot {
       return this.updateSemaphore.run(next);
     });
     this.bot.use(session());
+    this.catchHandlerErrors();
+  }
+
+  /**
+   * Telegraf's default error handler rethrows, and `launch()` is never awaited,
+   * so anything a handler throws — a flaky Google Translate 500, a model that
+   * fails to load — becomes an unhandled rejection and takes the process down.
+   * One bad update must not stop the bot.
+   *
+   * Only work the user actually asked for gets an apology in the chat. Most
+   * updates are handled passively (every text message goes through toxicity
+   * analysis), and a systemic failure over a 100-update backlog would answer
+   * with 100 messages — enough to hit the chat rate limit, whose retry_after
+   * sleep then stalls the real queue in `wrapCallApi`.
+   */
+  private catchHandlerErrors() {
+    this.bot.catch((error, ctx) => {
+      console.error(`Update ${ctx.update.update_id} (${ctx.updateType}) failed:`, error);
+      const message = ctx.message;
+      const isRequested =
+        ctx.updateType === 'callback_query' || (!!message && 'text' in message && message.text.startsWith('/'));
+      if (!isRequested) return;
+      ctx.reply('😵 Щось пішло не так, спробуй ще раз').catch((e) => console.error('Failed to report the error:', e));
+    });
   }
 
   /**

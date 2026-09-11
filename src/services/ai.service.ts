@@ -16,6 +16,7 @@ import {
   RawImage,
   ZeroShotClassificationPipeline,
 } from '@huggingface/transformers';
+import { retry } from '../utils/retry.utils';
 env.cacheDir = './data/models';
 
 // Transformers.js v4 moved these out of the package barrel into an internal
@@ -62,6 +63,9 @@ export class AIService {
   private static sentimentModel = 'Xenova/distilbert-base-uncased-finetuned-sst-2-english';
   private static toxicModel = 'Xenova/toxic-bert';
   private static zeroShotClassificationModel = 'Xenova/mDeBERTa-v3-base-xnli-multilingual-nli-2mil7';
+  /** How long translation is skipped after Google Translate fails */
+  private static translateCooldownMs = 5 * 60 * 1000;
+  private translateCooldownUntil = 0;
   private clipTokenizer: Promise<PreTrainedTokenizer> | null = null;
   private clipProcessor: Promise<Processor> | null = null;
   private clipTextModel: Promise<PreTrainedModel> | null = null;
@@ -149,13 +153,45 @@ export class AIService {
     return /^[a-zA-Z\s\d!"#№$%&'()*+,\-./:;<=>?@[\\\]^_`{|}~]+$/.test(text);
   }
 
+  /**
+   * Google Translate is an unofficial, undocumented endpoint and answers with
+   * 5xx or 429 every now and then. It is never the point of a request — it
+   * only prepares text for the English-only models — so a failure degrades the
+   * caller (weaker toxicity score, weaker search hit) instead of failing it.
+   *
+   * This runs per text message, inside the update handler, holding the update
+   * semaphore slot, so the backoff has to be paid at most once per outage
+   * rather than once per message: any failure that exhausts the retries opens
+   * a cooldown during which every caller skips translation outright. A 429 is
+   * not retried at all — a second request against an exhausted limit only
+   * spends the sleep.
+   */
   async getEnglishTranslation(text: string) {
     if (this.isEnglish(text)) return text;
+    if (Date.now() < this.translateCooldownUntil) return text;
+
     const t1 = performance.now();
-    const { text: engText } = await googleTranslate(text);
-    const t2 = performance.now();
-    console.log(`googleTranslate(${Math.round(t2 - t1)} ms)`, '|', text, '|', engText);
-    return engText;
+    try {
+      const { text: engText } = await retry(() => googleTranslate(text), {
+        shouldRetry: (e) => !AIService.isRateLimit(e),
+        onRetry: (e, attempt, nextDelayMs) =>
+          console.warn(`googleTranslate failed (attempt ${attempt}), retrying in ${nextDelayMs} ms:`, e),
+      });
+      const t2 = performance.now();
+      console.log(`googleTranslate(${Math.round(t2 - t1)} ms)`, '|', text, '|', engText);
+      return engText;
+    } catch (e) {
+      this.translateCooldownUntil = Date.now() + AIService.translateCooldownMs;
+      console.error(
+        `googleTranslate failed, skipping translation for ${AIService.translateCooldownMs / 60000} min:`,
+        e,
+      );
+      return text;
+    }
+  }
+
+  private static isRateLimit(error: unknown): boolean {
+    return typeof error === 'object' && error !== null && 'code' in error && error.code === 429;
   }
 
   async getTextClipEmbedding(text: string): Promise<number[]> {

@@ -9,8 +9,19 @@ import { VideoService } from '../../services/video.service';
 import { ChatPhotoMessage, ChatState, IgnoredMedia } from '../../entity/index';
 import { getLinkChatId } from '../../utils/telegram.utils.js';
 
-/** Media messages added during an import, plus the chat's media count afterwards */
-type ImportStats = { photos: number; videos: number; total: number };
+/** Media messages added during an import so far */
+type ImportCounters = { photos: number; videos: number };
+
+/** An import is started either by the command or by the retry button on a failed one */
+type ImportContext =
+  | (NarrowedContext<IBotContext, Update.MessageUpdate<Message>> & Types.CommandContextExtn)
+  | Context<Update.CallbackQueryUpdate<CallbackQuery>>;
+
+/** How often the running tally is logged, in added messages */
+const IMPORT_TALLY_EVERY = 100;
+
+/** Callback data of the keyboard offered when an import breaks: `himp-r`, `himp-r-30`, `himp-r-all`, `himp-c` */
+const IMPORT_ACTION_RE = /^himp-(r|c)(?:-(\d+|all))?$/;
 
 export class MediaTrackerCommand extends Command {
   public command = 'searchmedia';
@@ -73,9 +84,27 @@ export class MediaTrackerCommand extends Command {
       }
     });
     this.bot.command('starthistoryimport', async (ctx) => {
-      // Allow run in background and release message queue
-      // eslint-disable-next-line @typescript-eslint/no-floating-promises
-      this.startHistoryImport(ctx);
+      // Run in background and release the update slot
+      this.runImportInBackground(ctx, ctx.chat.id, ctx.message.message_id, this.parseImportWindow(ctx.payload));
+    });
+    // Keyboard offered when an import breaks partway. Either answer hides it,
+    // so the dead buttons cannot be pressed again later.
+    this.bot.action(IMPORT_ACTION_RE, async (ctx) => {
+      const [, action, window] = ctx.match;
+      await ctx.answerCbQuery();
+      await ctx.editMessageReplyMarkup({ inline_keyboard: [] });
+
+      if (action === 'c') {
+        await ctx.reply('🆗 Гаразд, залишаю як є.');
+        return;
+      }
+
+      // The keyboard rides on a message the bot just sent, so this is only
+      // missing if Telegram considers it inaccessible — nothing to reply to
+      const message = ctx.callbackQuery.message;
+      if (!message) return;
+
+      this.runImportInBackground(ctx, message.chat.id, message.message_id, this.parseImportWindow(window ?? ''));
     });
   }
 
@@ -424,10 +453,33 @@ export class MediaTrackerCommand extends Command {
     }
   }
 
-  private async startHistoryImport(
-    ctx: NarrowedContext<IBotContext, Update.MessageUpdate<Message>> & Types.CommandContextExtn,
+  /**
+   * An import runs for hours, so it is started without await to free the update
+   * slot — which also means nothing is left on the stack to catch a rejection.
+   * `startHistoryImport` reports its own failures, but the reply it sends can
+   * throw in turn, and that one has nowhere to go.
+   */
+  private runImportInBackground(
+    ctx: ImportContext,
+    chatId: number,
+    messageId: number,
+    importWindow: number | 'all' | undefined,
   ) {
-    const messageId = ctx.message.message_id;
+    this.startHistoryImport(ctx, chatId, messageId, importWindow).catch((e) =>
+      console.error('History import failed:', e),
+    );
+  }
+
+  /**
+   * @param messageId - What replies attach to; doubles as the newest message id, the progress denominator
+   * @param importWindow - The `/starthistoryimport` argument, carried as-is through a retry
+   */
+  private async startHistoryImport(
+    ctx: ImportContext,
+    chatId: number,
+    messageId: number,
+    importWindow: number | 'all' | undefined,
+  ) {
     if (this.isMediaImporting) {
       await ctx.reply('😡 Я тут працюю, тужуся, а ти відволікаєш.', {
         reply_parameters: { message_id: messageId },
@@ -435,11 +487,12 @@ export class MediaTrackerCommand extends Command {
       return;
     }
 
-    const importWindow = this.parseImportWindow(ctx.payload);
+    // Owned here, not inside the walk: an import runs for hours, and whatever
+    // it got through has to be reportable even when it ends in a throw
+    const added: ImportCounters = { photos: 0, videos: 0 };
 
     this.isMediaImporting = true;
     try {
-      const chatId = ctx.chat.id;
       const chatStateRepository = this.dataSource.getRepository(ChatState);
       const chatState = await chatStateRepository.findOneBy({ chatId: String(chatId) });
       const isMediaImported = chatState?.isMediaImported ?? false;
@@ -454,12 +507,14 @@ export class MediaTrackerCommand extends Command {
         // Reindex videos with frames
         // Note: old video entries (imported from thumbnails with mediaType='photo')
         // will be deleted automatically in importChatMessages for each message
-        const stats = await this.importChatMessages(chatId, messageId, { filter: new Api.InputMessagesFilterVideo() });
+        const total = await this.importChatMessages(chatId, messageId, added, {
+          filter: new Api.InputMessagesFilterVideo(),
+        });
 
         chatState!.isVideoImportedByFrames = true;
         await chatStateRepository.save(chatState!);
 
-        await ctx.reply(`😮‍💨 Відео переіндексовано!\n${this.formatImportStats(stats)}`, {
+        await ctx.reply(`😮‍💨 Відео переіндексовано!\n${this.formatImportStats(added, total)}`, {
           reply_parameters: { message_id: messageId },
         });
         return;
@@ -483,7 +538,7 @@ export class MediaTrackerCommand extends Command {
       // resuming from max(messageId) would skip everything older than the
       // newest live message — hence no cursor, only the skip set.
       const sinceDays = typeof importWindow === 'number' ? importWindow : undefined;
-      const windowLabel = sinceDays ? `за останні ${sinceDays} дн.` : 'за всю історію';
+      const windowLabel = sinceDays ? `за ${this.formatLastDays(sinceDays)}` : 'за всю історію';
       await ctx.reply(
         isMediaImported
           ? `🧹 Шукаю пропущені медіа ${windowLabel}...`
@@ -491,7 +546,7 @@ export class MediaTrackerCommand extends Command {
         { reply_parameters: { message_id: messageId } },
       );
 
-      const stats = await this.importChatMessages(chatId, messageId, { sinceDays });
+      const total = await this.importChatMessages(chatId, messageId, added, { sinceDays });
 
       if (!isMediaImported) {
         const newChatState = new ChatState();
@@ -501,13 +556,25 @@ export class MediaTrackerCommand extends Command {
         await chatStateRepository.save(newChatState);
       }
 
-      await ctx.reply(this.formatImportResult(stats), {
+      await ctx.reply(this.formatImportResult(added, total), {
         reply_parameters: { message_id: messageId },
       });
     } catch (e) {
       console.log(e);
-      await ctx.reply('📛 Халепа!', {
+      // The window rides along in the callback data so the retry repeats the
+      // very pass that failed — without it a retry of `/starthistoryimport all`
+      // would land in "🍧 Нема потреби"
+      const retryWindow = importWindow === undefined ? '' : `-${importWindow}`;
+      await ctx.reply(`📛 Халепа! Імпорт обірвався.\n${this.formatAdded(added)}\nℹ️ Продовжити з того ж місця?`, {
         reply_parameters: { message_id: messageId },
+        reply_markup: {
+          inline_keyboard: [
+            [
+              { text: '🔁 Продовжити', callback_data: `himp-r${retryWindow}` },
+              { text: '🚫 Скасувати', callback_data: 'himp-c' },
+            ],
+          ],
+        },
       });
     } finally {
       this.isMediaImporting = false;
@@ -639,19 +706,30 @@ export class MediaTrackerCommand extends Command {
     return arg && Number.isInteger(days) && days > 0 ? days : undefined;
   }
 
-  private formatImportStats({ photos, videos, total }: ImportStats): string {
+  /** Ukrainian plural for a day count: 1 день, 2 дні, 5 днів, 21 день */
+  private formatLastDays(days: number): string {
+    if (days === 1) return 'останній день';
+    const tail = days % 100 >= 11 && days % 100 <= 14 ? 0 : days % 10;
+    const noun = tail === 1 ? 'день' : tail >= 2 && tail <= 4 ? 'дні' : 'днів';
+    return `останні ${days} ${noun}`;
+  }
+
+  private formatAdded({ photos, videos }: ImportCounters): string {
     const added = photos + videos;
     // No breakdown when nothing was added — "0 (📷 0, 🎬 0)" is just noise
-    const addedLine = added > 0 ? `📥 Додано: ${added} (📷 ${photos}, 🎬 ${videos})` : '📥 Додано: 0';
-    return `${addedLine}\n🗂 Усього в базі: ${total}`;
+    return added > 0 ? `📥 Додано: ${added} (📷 ${photos}, 🎬 ${videos})` : '📥 Додано: 0';
+  }
+
+  private formatImportStats(added: ImportCounters, total: number): string {
+    return `${this.formatAdded(added)}\n🗂 Усього в базі: ${total}`;
   }
 
   /**
    * Headline scaled to the work done. A video costs a download plus five
    * frames, so it weighs more than a photo when picking the tone.
    */
-  private formatImportResult(stats: ImportStats): string {
-    const { photos, videos } = stats;
+  private formatImportResult(added: ImportCounters, total: number): string {
+    const { photos, videos } = added;
     const effort = photos + videos * 5;
     let headline: string;
     if (effort === 0) headline = '🤷 Нічого нового — усе вже було на місці.';
@@ -660,7 +738,7 @@ export class MediaTrackerCommand extends Command {
     else if (effort <= 2000) headline = '😮‍💨 Фух... Усе підтягнув!';
     else if (effort < 10_000) headline = '🥵 Оце була робота! Ледь не впав.';
     else headline = '🏋️ Це був справжній марафон.';
-    return `${headline}\n${this.formatImportStats(stats)}`;
+    return `${headline}\n${this.formatImportStats(added, total)}`;
   }
 
   /**
@@ -684,17 +762,24 @@ export class MediaTrackerCommand extends Command {
    * thumbnail rows (`mediaType='photo'`) do not count and get replaced — which
    * also makes the reindex resumable after a crash.
    *
+   * @param added - Caller-owned tally, mutated as the walk goes, so a run that dies partway is still reportable
    * @param options.sinceDays - Only look at messages from the last N days; default is the whole history
    * @param options.filter - Which media to walk; default is photos + videos
+   * @returns The chat's media count once the walk is done
    */
   private async importChatMessages(
     chatId: number,
     lastMessageId: number,
+    added: ImportCounters,
     options: { sinceDays?: number; filter?: Api.TypeMessagesFilter } = {},
-  ): Promise<ImportStats> {
+  ): Promise<number> {
     const { sinceDays, filter = new Api.InputMessagesFilterPhotoVideo() } = options;
     const chatPhotoMessageRepository = this.dataSource.getRepository(ChatPhotoMessage);
-    const added = { photos: 0, videos: 0 };
+
+    // A pass over a large history runs for hours, so the tally has to survive
+    // the process dying — `countAdded` logs it as it goes, bounding what a
+    // hard kill can lose to IMPORT_TALLY_EVERY
+    console.log(`Import start: chat ${chatId} has ${await this.countChatMedia(chatId)} media messages`);
 
     const apiId = this.configService.get('TG_API_ID');
     const apiHash = this.configService.get('TG_API_HASH');
@@ -731,7 +816,7 @@ export class MediaTrackerCommand extends Command {
             const chatPhotoMessages = await this.processVideoFromApi(message.video, chatId, message.id, lastMessageId);
             if (chatPhotoMessages.length > 0) {
               await this.dataSource.manager.save(chatPhotoMessages);
-              added.videos++;
+              this.countAdded(added, 'videos');
             }
           } catch (e) {
             console.log(chatId, message.id, 'video', e);
@@ -742,7 +827,7 @@ export class MediaTrackerCommand extends Command {
             const chatPhotoMessage = await this.processPhotoFromApi(photo, chatId, message.id, lastMessageId);
             if (chatPhotoMessage) {
               await this.dataSource.manager.save(chatPhotoMessage);
-              added.photos++;
+              this.countAdded(added, 'photos');
             }
           } catch (e) {
             console.log(chatId, message.id, 'photo', e);
@@ -754,14 +839,30 @@ export class MediaTrackerCommand extends Command {
       this.tgClient = null;
     }
 
-    // Video frames share a messageId, so count messages rather than rows
-    const totalRow = await chatPhotoMessageRepository
+    return this.countChatMedia(chatId);
+  }
+
+  /** Video frames share a messageId, so this counts messages rather than rows */
+  private async countChatMedia(chatId: number): Promise<number> {
+    const totalRow = await this.dataSource
+      .getRepository(ChatPhotoMessage)
       .createQueryBuilder('msg')
       .select('COUNT(DISTINCT msg.messageId)', 'count')
       .where('msg.chatId = :chatId', { chatId: String(chatId) })
       .getRawOne<{ count: string }>();
+    return parseInt(totalRow?.count ?? '0', 10);
+  }
 
-    return { ...added, total: parseInt(totalRow?.count ?? '0', 10) };
+  /**
+   * Counting and logging live together so the tally cannot drift: the periodic
+   * line only lands because every increment passes through here, one at a time.
+   */
+  private countAdded(added: ImportCounters, kind: keyof ImportCounters) {
+    added[kind]++;
+    const total = added.photos + added.videos;
+    if (total % IMPORT_TALLY_EVERY === 0) {
+      console.log(`Import tally: added ${total} (📷 ${added.photos}, 🎬 ${added.videos})`);
+    }
   }
 
   async dispose() {

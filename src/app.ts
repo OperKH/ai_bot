@@ -27,6 +27,14 @@ bot.registerCommands([
 ]);
 bot.start();
 
+// `bot.catch` only sees rejections that travel back up the middleware chain.
+// Work started without await on purpose — the history import, the trends
+// cleanup interval — has no handler left on the stack, and an unhandled
+// rejection there is what killed the process mid-import. Keep the bot running.
+process.on('unhandledRejection', (reason) => {
+  console.error('Unhandled rejection:', reason);
+});
+
 // Enable graceful stop
 process.once('SIGINT', async () => {
   await bot.stop('SIGINT');

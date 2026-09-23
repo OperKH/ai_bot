@@ -7,23 +7,31 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 This is a Telegram AI bot built with TypeScript that uses machine learning models for content analysis and media tracking. The bot can:
 
 - Track and search media (photos/videos) using CLIP embeddings for semantic similarity search
-- Detect duplicate media by comparing image embeddings
-- Perform sentiment and toxicity analysis on text
-- Transcribe speech from audio messages using Whisper
-- Classify messages using zero-shot classification
+- Detect duplicate media by comparing image embeddings, with `/ignoremedia` to exclude known repeats
+- React to toxic text messages with an emoji (toxic-bert)
+- Transcribe voice messages and video notes using Whisper
+- Summarize chat activity with `/trends` via OpenAI (photos in the chat are described by a vision model)
+
+Zero-shot classification exists in `AIService` and `ClassifyMessageByLabelsCommand`, but that command is
+not registered; the sentiment pipeline is not used by any command.
 
 ## Tech Stack
 
-- **Runtime**: Node.js 24+ with ES Modules
-- **Language**: TypeScript with strict mode
-- **Bot Framework**: Telegraf 4.x for Telegram bot API
-- **Telegram Client**: telegram library for advanced API operations (history import)
-- **Database**: PostgreSQL with pgvecto-rs extension for vector similarity search
-- **ORM**: TypeORM with entity decorators
+- **Runtime**: Node.js 26+ with ES Modules; `tsx` runs TypeScript directly in development
+- **Language**: TypeScript 6 with strict mode
+- **Bot Framework**: Telegraf 4.16 for Telegram Bot API
+- **Telegram Client**: telegram library (gramjs, MTProto user session) for history import
+- **Database**: PostgreSQL with the VectorChord extension (`vchordrq` index) for vector similarity search
+- **ORM**: TypeORM 1.x with entity decorators
 - **AI/ML**: @huggingface/transformers (Transformers.js) for running models locally
-- **Image Processing**: sharp for image manipulation
+- **LLM**: OpenAI SDK, traced through Langfuse
+- **Image Processing**: sharp (not a direct dependency — it comes in with `@huggingface/transformers`)
 - **Video Processing**: fluent-ffmpeg for video frame extraction
 - **Translation**: @iamtraction/google-translate for English translation
+
+**Telegraf is unmaintained**: the last release (4.16.3) is from February 2024 and its bundled types stop at
+Bot API 7.1. Newer Bot API methods and fields still work through `callApi`, but without types. grammY is
+the natural replacement if the framework is ever migrated.
 
 ## Development Commands
 
@@ -31,28 +39,31 @@ This is a Telegram AI bot built with TypeScript that uses machine learning model
 # Install dependencies
 npm install
 
-# Build TypeScript to dist/
-npm run build
-
-# Build and run
+# Run from sources via tsx (no build step)
 npm start
 
-# Development with auto-reload
+# Development with auto-reload (tsx watch)
 npm run dev
+
+# Build TypeScript to dist/ (tsc + tsc-alias)
+npm run build
+
+# Build for release (production; used by the Dockerfile, which runs `node dist/app.js`)
+npm run build:release
 
 # Clean build artifacts
 npm run clean
 
-# Build for release (production)
-npm run build:release
-
-# Generate Telegram session string (for history import)
-npm run tg:session
+# Type-check without emitting
+npm run typecheck
 
 # Lint
 npm run lint
 
-# Generate TypeORM migration
+# Generate Telegram session string (for history import)
+npm run tg:session
+
+# Generate TypeORM migration (reads the compiled data source, so run `npm run build` first)
 npx typeorm migration:generate ./src/migrations/MigrationName -d ./dist/dataSource/dataSource.js
 
 # Run migrations (happens automatically on app start via migrationsRun: true)
@@ -68,6 +79,9 @@ The bot uses a command-based architecture where each feature is implemented as a
 - Commands are registered in [app.ts](src/app.ts) via `bot.registerCommands()`
 - Each command implements `handle()` for setup and `dispose()` for cleanup
 - Commands have access to `bot`, `dataSource`, and `configService`
+- Registered: `StartCommand`, `MediaTrackerCommand` (`/searchmedia`, `/starthistoryimport`),
+  `IgnoreMediaCommand`, `ClassifyMessageCommand` (toxicity reactions), `RecognizeSpeechCommand`,
+  `TrendsCommand`. `ClockCommand` and `ClassifyMessageByLabelsCommand` exist but are not registered
 
 ### Update Queue and Telegram API Guard
 
@@ -83,6 +97,14 @@ Both live in [bot.class.ts](src/bot/bot.class.ts):
   and retries (up to 5 times); the sleep holds the caller's semaphore slot, so the whole queue pauses.
   It also counts calls per method and logs `Telegram API: N calls/min (...)` every minute while the bot
   is doing anything.
+
+### Bot API File Size Limit
+
+Live handlers download media through `getFileLink` (media tracking, `/ignoremedia`, speech recognition,
+image descriptions for trends). The cloud Bot API only serves files up to **20 MB**, so larger videos
+cannot be processed live and the handler fails into `bot.catch`. History import is not affected: it
+downloads through gramjs (MTProto), which has no such limit. Running a local `telegram-bot-api` server
+with `--local` would lift the limit to 2 GB without changing the framework.
 
 ### Singleton Services
 
@@ -142,7 +164,7 @@ TypeORM entities with decorators:
   - `chatId`: Chat identifier
   - `messageId`: Message identifier
   - `mediaType`: Type of media ('photo' or 'video')
-  - `frameIndex`: Frame index (0 for photos, 0-4 for video frames)
+  - `frameIndex`: Frame index (0 for photos, 0-3 for video frames)
   - `embedding`: 512-dimensional CLIP embedding in a Postgres `vector(512)` column
     - Writes accept a `'[0.1,0.2,...]'` string (the driver passes non-arrays through unchanged)
     - Reads through the **entity** path (`find`/`findOne`) hydrate it to `number[]`, not a string
@@ -168,6 +190,12 @@ TypeORM entities with decorators:
   - `chatId`: Chat identifier
   - `isMediaImported`: Whether initial media import is complete
   - `isVideoImportedByFrames`: Whether videos are indexed using multi-frame extraction
+- **IgnoredMedia**: Media excluded from duplicate detection via `/ignoremedia`; same `vector(512)`
+  `embedding` column (also `select: false`) matched with the sphere query below
+- **ChatMessage**: Text messages, voice transcriptions and image descriptions (`mediaDescription`)
+  collected as input for `/trends`
+- **TrendsSummary**: Generated trend summaries per chat and period (`summary`, `resultJson`). Trends
+  and `ChatMessage` rows older than 30 days are removed by a periodic cleanup in `TrendsService`
 
 ### ML Model Management
 
@@ -188,7 +216,7 @@ Models are loaded on first use and disposed on shutdown.
 The bot uses PostgreSQL's VectorChord extension for efficient vector similarity search:
 
 - Images and text are converted to 512-dimensional CLIP embeddings
-- Embeddings are stored as JSON strings in a `vector` column
+- Embeddings are stored in a `vector(512)` column and written as `'[...]'` strings
 - Queries use cosine similarity operator `<=>` with configurable thresholds
 
 **Query Optimization Pattern:**
@@ -236,12 +264,13 @@ The sphere operator `<<=>>` checks if embedding is within a sphere of given radi
 **For Videos:**
 
 1. User sends video → bot extracts file_id and downloads full video file
-2. Extract 5 frames at positions: 10%, 30%, 50%, 70% of video duration (avoids black screens at start/end)
+2. Extract 4 frames at positions: 10%, 30%, 50%, 70% of video duration (avoids black screens at start/end;
+   `VideoService.FRAME_POSITIONS`)
 3. Generate CLIP embedding for each frame
 4. Query database for similar embeddings across all frames
 5. Aggregate results by messageId (keeping highest similarity)
 6. If matches found, reply with references to similar messages
-7. Store all 5 frame embeddings in database with `mediaType='video'` and `frameIndex=0..4`
+7. Store all 4 frame embeddings in database with `mediaType='video'` and `frameIndex=0..3`
 
 **Why Multiple Frames for Videos:**
 
@@ -284,7 +313,7 @@ whole history; anything else counts as no argument. Skipped messages cost only t
 - Load the chat's existing `messageId`s into a `Set`
 - Iterate through chat history using `iterMessages()` with `InputMessagesFilterPhotoVideo`, skipping ids in the set
 - For photos: download and generate single CLIP embedding
-- For videos: download full video, extract 5 frames, generate embeddings for each
+- For videos: download full video, extract 4 frames, generate embeddings for each
 - Scenario 1 additionally sets `isMediaImported=true` and `isVideoImportedByFrames=true`
 
 **Scenario 2: Video Reindexing** (`isMediaImported && !isVideoImportedByFrames`)
@@ -294,8 +323,8 @@ whole history; anything else counts as no argument. Skipped messages cost only t
   `mediaType='video'` rows only, so legacy thumbnail rows do not count and the reindex is resumable
 - For each video:
   - Delete old entries (single thumbnail embedding with `mediaType='photo'`)
-  - Download full video and extract 5 frames at consistent positions
-  - Generate and store 5 new embeddings with `mediaType='video'`
+  - Download full video and extract 4 frames at consistent positions
+  - Generate and store 4 new embeddings with `mediaType='video'`
 - Set `isVideoImportedByFrames=true`
 
 **Implementation Details:**
@@ -332,10 +361,11 @@ Environment variables (see [.env.example](.env.example)):
 - `MATCH_IMAGE_COUNT`: Number of results to return per page (default 3)
 - `OPENAI_API_KEY`: OpenAI API key
 - `OPENAI_BASE_URL`: Optional custom OpenAI API base URL
-- `OPENAI_MODEL`: Model to use (default: gpt-5.6-luna)
-- `OPENAI_VISION_MODEL`: Model used for image descriptions (default: gpt-5.6-luna)
+- `OPENAI_MODEL`: Model to use (default: gpt-6-luna)
+- `OPENAI_VISION_MODEL`: Model used for image descriptions (default: gpt-6-luna)
 - `OPENAI_REASONING_EFFORT`: Effort for summarization and aggregation (default: low)
 - `OPENAI_VISION_REASONING_EFFORT`: Effort for image descriptions (default: none)
+- `OPENAI_MAX_DESCRIBE_IMAGE_TOKENS`: Output token cap for image descriptions (default 3000)
 
 **Models disagree on which reasoning efforts they accept, so these must be changed together with
 the model.** The ladders differ by generation:
@@ -353,14 +383,16 @@ options and rejects the request before generating anything. An unknown value in 
 by `ConfigService` with a warning and the default is used instead.
 
 - `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, `LANGFUSE_BASE_URL`: Langfuse observability
+- `LANGFUSE_TRACING_ENVIRONMENT`: Optional environment label for Langfuse traces
 
 ## Database Setup
 
-The project uses PostgreSQL with the pgvecto-rs extension (required for vector operations):
+The project uses PostgreSQL with the VectorChord extension (required for vector operations and the
+`vchordrq` index):
 
 ```yaml
 # docker-compose.yaml specifies the image
-image: tensorchord/pgvecto-rs:pg16-v0.2.0
+image: tensorchord/vchord-postgres:pg16-v0.5.3
 ```
 
 Migrations run automatically on startup due to `migrationsRun: true` in dataSource configuration.
@@ -369,8 +401,10 @@ Migrations run automatically on startup due to `migrationsRun: true` in dataSour
 
 This project uses ES Modules (type: "module" in package.json):
 
-- All imports must include `.js` extension (even when importing `.ts` files)
-- Use `import.meta.url` instead of `__dirname`
+- `moduleResolution` is `Bundler`, so relative imports may omit the extension; `tsx` resolves them in
+  development and `tsc-alias` (`resolveFullPaths`) appends `.js` in the build. Most files import
+  without an extension, some with `.js` — both work
+- There is no `__dirname`; derive it with `dirname(fileURLToPath(import.meta.url))`
 - Top-level await is supported
 
 ## ESLint Rules

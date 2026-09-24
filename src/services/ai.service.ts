@@ -31,10 +31,8 @@ export type DistilBertResponse = {
   score: number;
 };
 
-export type ToxicBertLabel = 'toxic' | 'insult' | 'obscene' | 'identity_hate' | 'threat' | 'severe_toxic';
-
-export type ToxicBertResponse = {
-  label: ToxicBertLabel;
+export type TextClassificationResponse = {
+  label: string;
   score: number;
 };
 
@@ -61,7 +59,13 @@ export class AIService {
   private static clipModel = 'Xenova/clip-vit-base-patch16';
   private static whisperModel = 'onnx-community/whisper-large-v3-turbo';
   private static sentimentModel = 'Xenova/distilbert-base-uncased-finetuned-sst-2-english';
-  private static toxicModel = 'Xenova/toxic-bert';
+  /**
+   * Multilingual (ru/uk/en among 15 languages), so messages are classified as
+   * written, without a round trip through Google Translate. Our ONNX export of
+   * textdetox/twitter-xlmr-toxicity-classifier, which has PyTorch weights only.
+   */
+  private static toxicModel = 'OperKH/twitter-xlmr-toxicity-classifier-ONNX';
+  private static toxicLabel = 'toxic';
   private static zeroShotClassificationModel = 'Xenova/mDeBERTa-v3-base-xnli-multilingual-nli-2mil7';
   /** How long translation is skipped after Google Translate fails */
   private static translateCooldownMs = 5 * 60 * 1000;
@@ -226,10 +230,10 @@ export class AIService {
   async toxicAnalysis(text: string) {
     const classifier = await this.getToxicAnalysisPipeline();
     const t1 = performance.now();
-    const output = await classifier(text, { top_k: 6 });
+    const output = await classifier(text, { top_k: null });
     const t2 = performance.now();
     console.log(`toxicAnalysis(${Math.round(t2 - t1)} ms)`, text, output);
-    return output as ToxicBertResponse[];
+    return output as TextClassificationResponse[];
   }
 
   async zeroShotClassification(text: string, labels: string[]) {
@@ -258,17 +262,10 @@ export class AIService {
     return text;
   }
 
-  async isTextToxic(text: string): Promise<boolean> {
-    const toxicThreshold = 0.7;
-    const engText = await this.getEnglishTranslation(text);
-    const toxicResult = await this.toxicAnalysis(engText);
-    return !!toxicResult.find(({ score }) => score > toxicThreshold);
-  }
-
-  async getMaxToxicScore(text: string): Promise<number> {
-    const engText = await this.getEnglishTranslation(text);
-    const [{ score }] = await this.toxicAnalysis(engText);
-    return score;
+  /** Probability that the message is toxic (insult, obscenity, hate…), 0–1 */
+  async getToxicScore(text: string): Promise<number> {
+    const output = await this.toxicAnalysis(text);
+    return output.find(({ label }) => label === AIService.toxicLabel)?.score ?? 0;
   }
 
   async getEmbeddingStringByImageUrl(url: string | URL): Promise<string> {

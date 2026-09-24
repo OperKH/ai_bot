@@ -8,7 +8,7 @@ This is a Telegram AI bot built with TypeScript that uses machine learning model
 
 - Track and search media (photos/videos) using CLIP embeddings for semantic similarity search
 - Detect duplicate media by comparing image embeddings, with `/ignoremedia` to exclude known repeats
-- React to toxic text messages with an emoji (toxic-bert)
+- React to toxic text messages with an emoji (multilingual XLM-R classifier)
 - Transcribe voice messages and video notes using Whisper
 - Summarize chat activity with `/trends` via OpenAI (photos in the chat are described by a vision model)
 
@@ -27,7 +27,7 @@ not registered; the sentiment pipeline is not used by any command.
 - **LLM**: OpenAI SDK, traced through Langfuse
 - **Image Processing**: sharp (not a direct dependency — it comes in with `@huggingface/transformers`)
 - **Video Processing**: fluent-ffmpeg for video frame extraction
-- **Translation**: @iamtraction/google-translate for English translation
+- **Translation**: @iamtraction/google-translate for English translation (CLIP text search only)
 
 **Telegraf is unmaintained**: the last release (4.16.3) is from February 2024 and its bundled types stop at
 Bot API 7.1. Newer Bot API methods and fields still work through `callApi`, but without types. grammY is
@@ -203,7 +203,7 @@ Models are cached locally in `data/models/` (configured via `env.cacheDir`). The
 
 - CLIP (Xenova/clip-vit-base-patch16) for image/text embeddings
 - DistilBERT for sentiment analysis
-- toxic-bert for toxicity detection
+- OperKH/twitter-xlmr-toxicity-classifier-ONNX for toxicity detection
 - Whisper large-v3-turbo for speech recognition
 - mDeBERTa for zero-shot classification
 
@@ -340,11 +340,9 @@ whole history; anything else counts as no argument. Skipped messages cost only t
 
 ### Translation Strategy
 
-All AI models expect English input, so non-English text is automatically translated:
-
 - Check if text matches English regex pattern
 - If not, translate using Google Translate API
-- Use translated text for embeddings and classification
+- Use translated text for the CLIP text embedding
 
 ## Configuration
 

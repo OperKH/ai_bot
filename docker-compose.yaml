@@ -11,6 +11,9 @@ services:
     depends_on:
       - postgres
     restart: always
+    # On SIGTERM the bot lets the updates in progress finish, for up to 25 s
+    # (STOP_TIMEOUT_MS); Docker's default 10 s is shorter than one Whisper run
+    stop_grace_period: 30s
 
   postgres:
     container_name: ai_bot_postgres

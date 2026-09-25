@@ -2,7 +2,8 @@ import type { MediaMatch } from '../../dataSource/vectorSearch';
 
 /**
  * What replying with matches needs from the chat and the store. The command
- * backs it with Telegraf and TypeORM; the tests with a fake.
+ * backs it with grammY and TypeORM; the tests with a fake. The pace between
+ * replies is kept by the Bot API client (`apiTransformers.ts`), not here.
  */
 export interface MatchReplyPort {
   /** Sends a message, as a reply to `replyToId` when given; returns the sent message's id */
@@ -20,8 +21,6 @@ export interface MatchReplyPort {
   delete(messageId: number): Promise<void>;
   /** Drops a deleted message from the store, so it is not found again */
   forget(messageId: string): Promise<void>;
-  /** The pause between two replies */
-  pause(): Promise<void>;
 }
 
 /** Captions of the "seen it before" replies, in the order they are shown */
@@ -70,7 +69,6 @@ export async function replyWithDuplicates(
     if ((await replyToMatch(port, match, `${variant} (${Math.round(match.similarity * 1e4) / 1e2}%)`)) !== null) {
       shown++;
     }
-    await port.pause();
   }
   if (shown === 0) await port.delete(headerId);
 }
@@ -133,7 +131,6 @@ export async function showSearchPage(port: MatchReplyPort, page: SearchPage): Pr
         console.log(`messageId: ${match.messageId}`, e);
       }
       cursor = match;
-      await port.pause();
     }
   }
 
@@ -145,6 +142,55 @@ export async function showSearchPage(port: MatchReplyPort, page: SearchPage): Pr
     await port.send('💃 Це все!');
   }
   return { cursor, buttonMessageId };
+}
+
+/** A stored search as a press on its "Ще" button sees it */
+export interface PressedSearch {
+  /** The message that carries the search's live button; null while a page is on its way */
+  buttonMessageId: string | null;
+}
+
+/** What a press on a "Ще" button needs from the chat and the store */
+export interface MorePressPort<S extends PressedSearch> {
+  /** Answers the button press, with a notice when given */
+  answer(text?: string): Promise<void>;
+  /** Takes the keyboard off the pressed message */
+  removeKeyboard(): Promise<void>;
+  /** Clears the search's button in the store, so no other press moves it on */
+  releaseButton(search: S): Promise<void>;
+  /** Hands the next page over; it runs in the background */
+  showNextPage(search: S): void;
+}
+
+/**
+ * Handles a press on a "Ще" button.
+ *
+ * - The pressed button goes at once, before the next page: that page brings its
+ *   own on its last result, and the old one must not sit beside it.
+ * - Only the search's latest button moves it on, and it is released before the
+ *   page goes out: a second tap on the same button, handled while that page is
+ *   still running in the background, would otherwise show one more page.
+ *
+ * @param search - The stored search; null once it expired or was replaced, and
+ *   for buttons from before searches were stored
+ * @param expiredText - The notice for a press on a search that is gone
+ */
+export async function pressMore<S extends PressedSearch>(
+  port: MorePressPort<S>,
+  search: S | null,
+  pressedMessageId: number | undefined,
+  expiredText: string,
+): Promise<void> {
+  if (!search) {
+    await port.answer(expiredText);
+    await port.removeKeyboard();
+    return;
+  }
+  await port.answer();
+  await port.removeKeyboard();
+  if (search.buttonMessageId !== String(pressedMessageId)) return;
+  await port.releaseButton(search);
+  port.showNextPage(search);
 }
 
 /** Callback data of the "Ще" button of a stored search */

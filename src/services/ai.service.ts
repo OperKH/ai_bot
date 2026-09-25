@@ -1,4 +1,4 @@
-import https from 'node:https';
+import { deflateSync } from 'node:zlib';
 import googleTranslate from '@iamtraction/google-translate';
 import sharp from 'sharp';
 import {
@@ -73,6 +73,15 @@ export class AIService {
   private static zeroShotClassificationModel = 'Xenova/mDeBERTa-v3-base-xnli-multilingual-nli-2mil7';
   /** How long translation is skipped after Google Translate fails */
   private static translateCooldownMs = 5 * 60 * 1000;
+  /**
+   * Above this compression ratio a transcription counts as looped. Whisper decodes
+   * greedily and can get stuck repeating itself ("I, I, I…", "проблеми, проблеми…"),
+   * and repetition compresses far better than speech. OpenAI's Whisper checks the
+   * same way with 2.4, but Cyrillic takes two bytes a letter in UTF-8 and compresses
+   * better: on our samples normal transcriptions scored up to 2.35 and looped ones
+   * from 3.83.
+   */
+  private static loopedCompressionRatio = 3;
   private translateCooldownUntil = 0;
   private clipTokenizer: Promise<PreTrainedTokenizer> | null = null;
   private clipProcessor: Promise<Processor> | null = null;
@@ -160,7 +169,14 @@ export class AIService {
   private getAutomaticSpeechRecognitionPipeline() {
     if (!this.automaticSpeechRecognitionPipeline) {
       this.automaticSpeechRecognitionPipeline = pipeline('automatic-speech-recognition', AIService.whisperModel, {
-        dtype: 'q8',
+        // Not `q8` for the decoder: its q8 file quantizes weights to int8 and
+        // activations to uint8 on the fly (MatMulInteger, U8S8). On x86 without
+        // VNNI (the i7-6700K in production) onnxruntime computes that with
+        // VPMADDUBSW, which saturates, and the transcription loops: "проблеми,
+        // проблеми, проблеми…". CPUs with VNNI and ARM are not affected. The q4
+        // decoder keeps int4 weights but computes in float (MatMulNBits,
+        // accuracy_level 0). The q8 encoder is U8U8, which does not saturate.
+        dtype: { encoder_model: 'q8', decoder_model_merged: 'q4' },
       });
     }
 
@@ -187,8 +203,8 @@ export class AIService {
    * only prepares text for the English-only models — so a failure degrades the
    * caller (weaker toxicity score, weaker search hit) instead of failing it.
    *
-   * This runs per text message, inside the update handler, holding the update
-   * semaphore slot, so the backoff has to be paid at most once per outage
+   * This runs per text message, inside the update handler, holding its slot in
+   * the update queue, so the backoff has to be paid at most once per outage
    * rather than once per message: any failure that exhausts the retries opens
    * a cooldown during which every caller skips translation outright. A 429 is
    * not retried at all — a second request against an exhausted limit only
@@ -269,13 +285,47 @@ export class AIService {
     return output as ZeroShotClassificationResponse;
   }
 
+  /**
+   * The model picks the language itself, which keeps the chat's mix of Russian
+   * and Ukrainian as spoken. On a hard start it may take the speech for English
+   * and get stuck ("I, I, I…"). Such a transcription is redone with Russian set:
+   * that never looped on our samples, though it Russifies Ukrainian speech, so it
+   * is only the fallback. Ukrainian is no fallback: set on Russian speech, it
+   * made up "Дякую, перегляд!".
+   */
   async audio2text(audio: AudioPipelineInputs, duration: number): Promise<string> {
-    const transcriber = await this.getAutomaticSpeechRecognitionPipeline();
-    const t1 = performance.now();
-    const output = await transcriber(audio, {
+    const text = await this.transcribe(audio, duration, {
       // Hack to enable multi-language. `task` must be empty in this case.
       // Still honoured at runtime in v4 via `generation_config.is_multilingual`.
       is_multilingual: false,
+    });
+    if (!AIService.isLoopedTranscription(text)) return text;
+    console.warn(
+      `Transcription looped (compression ratio ${AIService.compressionRatio(text).toFixed(1)}), redoing in Russian`,
+    );
+    return this.transcribe(audio, duration, { is_multilingual: true, language: 'russian', task: 'transcribe' });
+  }
+
+  /** UTF-8 size of `text` over its deflated size */
+  static compressionRatio(text: string): number {
+    const bytes = Buffer.from(text, 'utf8');
+    return bytes.length === 0 ? 0 : bytes.length / deflateSync(bytes).length;
+  }
+
+  /** Whether Whisper got stuck repeating itself (see `loopedCompressionRatio`) */
+  static isLoopedTranscription(text: string): boolean {
+    return AIService.compressionRatio(text) > AIService.loopedCompressionRatio;
+  }
+
+  private async transcribe(
+    audio: AudioPipelineInputs,
+    duration: number,
+    languageOptions: { is_multilingual: boolean; language?: string; task?: string },
+  ): Promise<string> {
+    const transcriber = await this.getAutomaticSpeechRecognitionPipeline();
+    const t1 = performance.now();
+    const output = await transcriber(audio, {
+      ...languageOptions,
       return_timestamps: false,
       chunk_length_s: duration >= 30 ? 30 : undefined,
       stride_length_s: duration >= 30 ? 5 : undefined,
@@ -310,24 +360,9 @@ export class AIService {
     return embeddings;
   }
 
-  async getEmbeddingStringByImageUrl(url: string | URL): Promise<string> {
-    const imageBuffer = await this.getBufferByUrl(url);
+  async getEmbeddingStringByImageBuffer(imageBuffer: Buffer): Promise<string> {
     const rawImage = await this.getRawImageFromBuffer(imageBuffer);
     const imageEmbedding = await this.getImageClipEmbedding(rawImage);
     return JSON.stringify(imageEmbedding);
-  }
-
-  private getBufferByUrl(url: string | URL): Promise<Buffer> {
-    return new Promise((resolve, reject) => {
-      https.get(url, (res) => {
-        if (!res.statusCode || res.statusCode < 200 || res.statusCode >= 300) {
-          reject(new Error(`Failed, status code: ${res.statusCode}`));
-        }
-        const chunks: Buffer[] = [];
-        res.on('data', (chunk: Buffer) => chunks.push(chunk));
-        res.on('end', () => resolve(Buffer.concat(chunks)));
-        res.on('error', reject);
-      });
-    });
   }
 }

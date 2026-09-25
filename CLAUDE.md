@@ -19,7 +19,8 @@ not registered; the sentiment pipeline is not used by any command.
 
 - **Runtime**: Node.js 26+ with ES Modules; `tsx` runs TypeScript directly in development
 - **Language**: TypeScript 6 with strict mode
-- **Bot Framework**: Telegraf 4.16 for Telegram Bot API
+- **Bot Framework**: grammY 1.46 for Telegram Bot API, with the `runner`, `auto-retry`,
+  `transformer-throttler` and `files` plugins
 - **Telegram Client**: telegram library (gramjs, MTProto user session) for history import
 - **Database**: PostgreSQL with the VectorChord extension (`vchordrq` index) for vector similarity search
 - **ORM**: TypeORM 1.x with entity decorators
@@ -29,9 +30,12 @@ not registered; the sentiment pipeline is not used by any command.
 - **Video Processing**: fluent-ffmpeg for video frame extraction
 - **Translation**: @iamtraction/google-translate for English translation (CLIP text search only)
 
-**Telegraf is unmaintained**: the last release (4.16.3) is from February 2024 and its bundled types stop at
-Bot API 7.1. Newer Bot API methods and fields still work through `callApi`, but without types. grammY is
-the natural replacement if the framework is ever migrated.
+**grammY is pinned to `~1.46.0`**: its types follow the Bot API and change in minor releases. grammY 2.0
+(September 2026: betas on JSR only) is not used yet, because the plugins above do not work on it. What
+moving to 2.0 changes is kept in few places: the transformer setup in
+[apiTransformers.ts](src/bot/apiTransformers.ts) (`api.config.use` → `api.transform`, with a new
+transformer signature), `GrammyError` only in [bot.class.ts](src/bot/bot.class.ts), `Filter` only in
+[context.interface.ts](src/bot/context/context.interface.ts), and `ctx.reply` → `ctx.sendMessage`.
 
 ## Development Commands
 
@@ -80,7 +84,8 @@ The bot uses a command-based architecture where each feature is implemented as a
 
 - All commands extend the abstract [Command](src/bot/commands/command.class.ts) class
 - Commands are registered in [app.ts](src/app.ts) via `bot.registerCommands()`
-- Each command implements `handle()` for setup and `dispose()` for cleanup
+- Each command implements `handle()` for setup; `dispose()` for cleanup is optional (most hold nothing to
+  release, and the shared AI models are released in [app.ts](src/app.ts))
 - Commands have access to `bot`, `dataSource`, and `configService`
 - Registered: `StartCommand`, `MediaTrackerCommand` (`/searchmedia`, `/starthistoryimport`),
   `IgnoreMediaCommand`, `ClassifyMessageCommand` (toxicity reactions), `RecognizeSpeechCommand`,
@@ -88,26 +93,65 @@ The bot uses a command-based architecture where each feature is implemented as a
 
 ### Update Queue and Telegram API Guard
 
-Both live in [bot.class.ts](src/bot/bot.class.ts):
+Incoming updates are taken in by `UpdateQueue` ([updateQueue.ts](src/bot/updateQueue.ts)), outgoing calls go
+through [apiTransformers.ts](src/bot/apiTransformers.ts); [bot.class.ts](src/bot/bot.class.ts) wires them
+together. Helpers live next to their users in `src/bot/` (`telegramFiles.ts`, `telegramLinks.ts`,
+`backgroundQueue.ts`), not in a global `src/utils`.
 
-- **Update queue**: Telegraf handles a whole `getUpdates` batch (up to 100 updates) through `Promise.all`,
-  so after downtime the backlog would mean dozens of concurrent Whisper/CLIP runs and a burst of replies.
-  The first middleware gates every update through a `Semaphore` ([semaphore.utils.ts](src/utils/semaphore.utils.ts))
-  sized by `TG_UPDATE_CONCURRENCY` (default 1 = strictly sequential). Background work started from a
-  handler without `await` (e.g. `/starthistoryimport`) releases its slot immediately.
-- **`callApi` wrapper**: every outgoing call (`ctx.reply`, `ctx.react`, `getFileLink`, …) goes through
-  `Telegram.callApi`, which is wrapped once at startup. On 429 it sleeps for Telegram's `retry_after`
-  and retries (up to 5 times); the sleep holds the caller's semaphore slot, so the whole queue pauses.
-  It also counts calls per method and logs `Telegram API: N calls/min (...)` every minute while the bot
-  is doing anything.
+- **Update queue** (`UpdateQueue`): `@grammyjs/runner` polls, and two middlewares gate every update:
+  `sequentialize` by chat (updates of one chat run in order), then slots sized by `TG_UPDATE_CONCURRENCY`
+  (default 1 = strictly sequential).
+  - The slots are not redundant: the runner starts every update of a `getUpdates` batch (up to 100) at
+    once — its `concurrency` only sizes the next fetch — so after downtime the backlog would mean dozens of
+    concurrent Whisper/CLIP runs.
+  - `sequentialize` comes first, so an update waiting for its chat's turn does not hold a slot.
+  - Long work goes to a `BackgroundQueue` ([backgroundQueue.ts](src/bot/backgroundQueue.ts)),
+    which frees the slot: jobs run one at a time, in order, a failed one is logged (or apologised for, via
+    `apologize` from bot.class.ts) without holding up the rest, and the owning command closes the queue
+    when disposed, so the shutdown waits for the job in progress. `/searchmedia` pages and transcriptions
+    use it: a page probes each result whose message may be gone with a reply sent and taken back, paced by
+    the throttler, so in a chat with many deleted messages one page takes minutes.
+  - `/starthistoryimport` runs for hours, so it is started without `await` and not waited for at shutdown.
+- **Transcription queue** ([transcriptionQueue.ts](src/bot/commands/transcriptionQueue.ts)): a voice
+  message or video note gets its 💬 reply at once, and the transcription goes into a queue that runs one
+  Whisper at a time, apart from the update queue. So every transcription replaces the 💬 right under its
+  own message, even when several arrive while one is being transcribed, and other updates do not wait
+  for Whisper.
+- **Outgoing calls** go through a chain of API transformers on `bot.api`, which apply to `ctx.api` too:
+  - `@grammyjs/auto-retry` retries a 429 after Telegram's `retry_after`, up to 5 times. Nothing else is
+    retried: a `sendMessage` that failed on the network may still have been delivered. The wait holds the
+    caller's slot, so the whole queue pauses.
+  - `@grammyjs/transformer-throttler` paces the methods that post messages (`isSendMethod`: `send*` except
+    `sendChatAction`, plus copy/forward) to Telegram's limits: 20 a minute and one a second per group, one
+    a second per private chat. Reactions and edits are not paced. This is why the code makes no pauses
+    between replies.
+  - `ApiCallMonitor` counts the requests that go out, logs `Telegram API: N calls/min (...)` every minute
+    while the bot is doing anything, and warns on each 429.
+  - `@grammyjs/files` adds `getUrl()` to `getFile` results (see below).
+- **Errors**: `bot.catch` logs a failed update and apologises in the chat only for commands and button
+  presses. `bot.start()` rejects when polling cannot go on (401 for a revoked token, 409 for another
+  instance polling), and [app.ts](src/app.ts) then exits with code 1.
+- **Stop** (SIGINT/SIGTERM), in [app.ts](src/app.ts):
+  - Polling stops, and updates that have not started are dropped (Telegram already counts them as
+    delivered).
+  - The ones in progress finish, then the commands are disposed, closing their background queues: the
+    search page or transcription in progress finishes too, and queued transcriptions get a notice in place
+    of their 💬. All of it shares 25 s (`STOP_TIMEOUT_MS`, under `stop_grace_period: 30s` in docker-compose).
+  - The AI models are released after that, once: `AIService` is a singleton shared by several commands,
+    so no command disposes it.
+  - The database closes, the traces are flushed and the process exits. No step throws — each logs its own
+    failure — so every step runs.
 
 ### Bot API File Size Limit
 
-Live handlers download media through `getFileLink` (media tracking, `/ignoremedia`, speech recognition,
-image descriptions for trends). The cloud Bot API only serves files up to **20 MB**, so larger videos
-cannot be processed live and the handler fails into `bot.catch`. History import is not affected: it
-downloads through gramjs (MTProto), which has no such limit. Running a local `telegram-bot-api` server
-with `--local` would lift the limit to 2 GB without changing the framework.
+Live handlers download media through `downloadTelegramFile` ([telegramFiles.ts](src/bot/telegramFiles.ts)):
+media tracking, `/ignoremedia`, speech recognition, image descriptions for trends. A file link carries the
+bot token, so it never leaves that function, and images go to OpenAI as base64 data URLs.
+
+The cloud Bot API only serves files up to **20 MB**, so larger videos cannot be processed live and the
+handler fails into `bot.catch`. History import is not affected: it downloads through gramjs (MTProto),
+which has no such limit. Running a local `telegram-bot-api` server with `--local` would lift the limit to
+2 GB without code changes: such a server hands out absolute file paths, which the helper reads from disk.
 
 ### Singleton Services
 
@@ -207,6 +251,10 @@ TypeORM entities with decorators:
   - The embedding is computed once, when the search is created. Every page is then ranked by the vector
     the cursor belongs to, and "Ще" needs no translation.
   - The same query asked again in the chat replaces the earlier search.
+  - A pressed "Ще" is taken off at once, before the next page goes out; that page carries the new button
+    on its last result, so there is never more than one. Only the search's latest button
+    (`buttonMessageId`) moves it on: a second tap on the same button is ignored instead of showing an
+    extra page.
   - An hourly job removes searches older than 30 days. A search that goes, expired or replaced, has its
     button taken off first. A button that survives (the edit failed) answers that the search has expired,
     and so do buttons from before this table, which carry a JSON payload.
@@ -218,10 +266,19 @@ Models are cached locally in `data/models/` (configured via `env.cacheDir`). The
 - CLIP (Xenova/clip-vit-base-patch16) for image/text embeddings
 - DistilBERT for sentiment analysis
 - OperKH/twitter-xlmr-toxicity-classifier-ONNX for toxicity detection
-- Whisper large-v3-turbo for speech recognition
+- Whisper large-v3-turbo for speech recognition: q8 encoder, **q4 decoder**. The q8 decoder is U8S8
+  (int8 weights, uint8 activations); onnxruntime computes that with a saturating instruction on x86 without
+  VNNI — production runs on an i7-6700K — and the transcription loops ("проблеми, проблеми, проблеми…").
+  Before switching models or `dtype`, check a quantized file's ops: `MatMulInteger` with int8 weights is the
+  risky kind, while `MatMulNBits` with `accuracy_level` 0 computes in float.
+  Whisper can still loop on a hard start, on any `dtype` including fp32: left to pick the language (needed
+  for the Russian–Ukrainian mix), it takes the speech for English ("I, I, I…"). `audio2text` catches that by
+  the text's compression ratio (`AIService.isLoopedTranscription`, above 3) and redoes it with Russian set
 - mDeBERTa for zero-shot classification
 
-Models are loaded on first use and disposed on shutdown.
+Models are loaded on first use and disposed once on shutdown, by `AIService.dispose()` from
+[app.ts](src/app.ts). A repeated call returns the first one's promise: onnxruntime throws "Session already
+disposed" on a second release.
 
 ## Key Implementation Details
 
@@ -378,7 +435,7 @@ If every match of a "seen it before" thread turns out deleted, the header is rem
 
 ### History Import and Video Reindexing
 
-The `/starthistoryimport [days|all]` command uses the telegram library (not Telegraf). Its import is a
+The `/starthistoryimport [days|all]` command uses the telegram library (not grammY). Its import is a
 **gap-fill pass**: it walks the chat's media and embeds only messages the DB does not have yet. There
 is no cursor like "resume from `max(messageId)`" — live handlers write to the DB regardless of import
 state, so after a downtime the newest rows are fresh live messages and the gap sits _below_ them.
@@ -438,7 +495,8 @@ the first file to set a variable wins, and a variable already set in the environ
 
 - `TG_TOKEN`: Telegram bot token from BotFather
 - `TG_API_ID`, `TG_API_HASH`, `TG_API_SESSION`: Telegram client credentials for history import
-- `TG_UPDATE_CONCURRENCY`: How many incoming updates are handled at once (default 1). ML inference is
+- `TG_UPDATE_CONCURRENCY`: How many incoming updates are handled at once (default 1). Updates of one chat
+  always run in order, so a value above 1 only helps when several chats are active. ML inference is
   CPU-bound, so raising it mostly trades memory for little throughput; keep it at 1–2 unless the box is
   large
 - `DB_*`: PostgreSQL connection settings
@@ -535,12 +593,27 @@ Unit tests use Node's built-in `node:test` runner through `tsx`, so there is no 
 - ESLint's `no-floating-promises` treats the `node:test` calls (`describe`, `it`, …) as safe; they
   return promises that the runner awaits itself.
 
-What is covered is logic that must survive a framework change (the planned grammY migration), tested
-through a port instead of Telegraf and TypeORM. For example,
-[mediaMatchReplies.ts](src/bot/commands/mediaMatchReplies.ts) holds the replies to matched media
-(skipping deleted messages) and the `/searchmedia` paging. The command only supplies a
-`MatchReplyPort`, and the tests supply a fake chat. SQL and index behaviour need a real
-Postgres/VectorChord and are not unit-tested.
+What is covered:
+
+- Logic that should not depend on the framework, kept in modules next to the command and tested through a
+  port instead of grammY and TypeORM:
+  - [mediaMatchReplies.ts](src/bot/commands/mediaMatchReplies.ts): the replies to matched media (skipping
+    deleted messages), the `/searchmedia` paging and a press on "Ще" (`pressMore`: the button goes before
+    the next page, a double tap shows one page). The command supplies the ports, the tests a fake chat.
+  - [transcriptionQueue.ts](src/bot/commands/transcriptionQueue.ts): every voice message gets its 💬
+    without waiting for the transcriptions ahead of it.
+  - [trendsMessage.ts](src/bot/commands/trendsMessage.ts): the `/trends` message — MarkdownV2 escaping,
+    and splitting so no chunk exceeds Telegram's 4096 characters.
+- [updateQueue.test.ts](src/bot/updateQueue.test.ts) runs the real grammY bot and runner against a fake Bot
+  API with a backlog of several chats: the slot limit holds for a whole batch, one chat stays in order,
+  and a stop drops what has not started. Its chats are chosen so that each of these breaks the test when
+  removed — a single chat would pass without the slots, since `sequentialize` alone keeps it in order.
+- `AIService.audio2text` with Whisper replaced: a looped transcription is redone once, with Russian set.
+- The API transformers (which methods are paced, what is counted) with a fake Bot API, and the file
+  download helper against a local HTTP server.
+
+SQL and index behaviour need a real Postgres/VectorChord and are not unit-tested; neither is the history
+import, which needs MTProto.
 
 ## Additional Context
 

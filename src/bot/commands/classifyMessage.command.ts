@@ -1,5 +1,3 @@
-import { message } from 'telegraf/filters';
-
 import { Command } from './command.class';
 import { AIService } from '../../services/ai.service';
 
@@ -22,8 +20,8 @@ export class ClassifyMessageCommand extends Command {
   private aiService = AIService.getInstance();
 
   handle(): void {
-    this.bot.on(message('text'), async (ctx, next) => {
-      const textContent = ctx.message.text;
+    this.bot.on('message:text', async (ctx, next) => {
+      const textContent = ctx.msg.text;
       if (!textContent.startsWith('/')) {
         const toxicScore = await this.aiService.getToxicScore(textContent);
         if (toxicScore >= DEVIL_THRESHOLD) {

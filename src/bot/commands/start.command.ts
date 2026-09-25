@@ -5,7 +5,7 @@ export class StartCommand extends Command {
   public description = '👋 Привітатися';
 
   handle(): void {
-    this.bot.start(async (ctx) => {
+    this.bot.command(this.command, async (ctx) => {
       try {
         await ctx.reply(
           'Привіт, я вмію розпізнавати мову і представляти її у вигляді тексту, щильно стежу за всіма медіа щоб не було ждогого баяну та погано реагую на грубу мову.',

@@ -30,7 +30,32 @@ bot.registerCommands([
   RecognizeSpeechCommand,
   TrendsCommand,
 ]);
-bot.start();
+
+let isShuttingDown = false;
+
+/**
+ * Stops the bot, which lets the updates in progress finish, then releases the
+ * AI models, closes the database and flushes the traces. AIService is a
+ * singleton shared by several commands, so it is disposed once here rather
+ * than by each of them. No step throws — each logs its own failure — so every
+ * step runs and the traces are always flushed. The exit is explicit: a history
+ * import running in the background holds an MTProto connection that would
+ * keep the process alive.
+ */
+async function shutdown(exitCode: number) {
+  if (isShuttingDown) return;
+  isShuttingDown = true;
+  await bot.stop();
+  await AIService.getInstance().dispose();
+  await dataSource.destroy().catch((e) => console.error('Failed to close the database:', e));
+  await shutdownTracing().catch((e) => console.error('Failed to flush the traces:', e));
+  process.exit(exitCode);
+}
+
+bot.start().catch(async (e) => {
+  console.error('Polling stopped:', e);
+  await shutdown(1);
+});
 
 // `bot.catch` only sees rejections that travel back up the middleware chain.
 // Work started without await on purpose — the history import, the trends
@@ -40,14 +65,5 @@ process.on('unhandledRejection', (reason) => {
   console.error('Unhandled rejection:', reason);
 });
 
-// Enable graceful stop. AIService is a singleton shared by several commands,
-// so it is disposed once here rather than by each of them. Neither step
-// throws — Bot.stop() and dispose() log their own failures — so tracing is
-// always flushed.
-async function shutdown(signal: NodeJS.Signals) {
-  await bot.stop(signal);
-  await AIService.getInstance().dispose();
-  await shutdownTracing();
-}
-process.once('SIGINT', () => shutdown('SIGINT'));
-process.once('SIGTERM', () => shutdown('SIGTERM'));
+process.once('SIGINT', () => shutdown(0));
+process.once('SIGTERM', () => shutdown(0));

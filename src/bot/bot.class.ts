@@ -1,119 +1,92 @@
 import { setTimeout as sleep } from 'node:timers/promises';
-import { session, Telegraf, TelegramError } from 'telegraf';
-import { BotCommand } from 'telegraf/types';
+import { Bot as GrammyBot, GrammyError } from 'grammy';
+import type { BotCommand } from 'grammy/types';
 import { DataSource } from 'typeorm';
+import { ApiCallMonitor, installApiTransformers } from './apiTransformers';
 import { Command } from './commands/command.class';
-import { IBotContext } from './context/context.interface';
+import type { BotApi, BotContext, TelegramBot } from './context/context.interface';
+import { UpdateQueue } from './updateQueue';
 import { ConfigService } from '../config/config.service';
 import { retry } from '../utils/retry.utils';
-import { Semaphore } from '../utils/semaphore.utils';
 
-/** Give up on a call that keeps hitting 429 after this many waits */
-const MAX_RATE_LIMIT_RETRIES = 5;
 const API_STATS_INTERVAL_MS = 60 * 1000;
+
+/**
+ * How long a stop waits for the work in progress — updates and background work
+ * such as a transcription; keep it under docker-compose's stop_grace_period
+ */
+const STOP_TIMEOUT_MS = 25 * 1000;
 
 /**
  * Telegram client errors (invalid token, malformed payload) will not fix
  * themselves, so retrying them is pointless. Server errors are worth another
  * attempt, and so is anything that is not a Telegram API response at all —
  * transport failures such as ETIMEDOUT. Rate limits (429) are already retried
- * one layer down, in the `callApi` wrapper, so they are not repeated here.
+ * one layer down, in the API transformers, so they are not repeated here.
  */
-const isTransientTelegramError = (error: unknown) => (error instanceof TelegramError ? error.code >= 500 : true);
+const isTransientTelegramError = (error: unknown) => (error instanceof GrammyError ? error.error_code >= 500 : true);
+
+/**
+ * Tells the chat that what the user asked for failed. For `bot.catch` and for
+ * work a handler handed over to the background, where `bot.catch` cannot reach.
+ * Failing to say so is only logged.
+ */
+export function apologize(ctx: BotContext) {
+  ctx.reply('😵 Щось пішло не так, спробуй ще раз').catch((e) => console.error('Failed to report the error:', e));
+}
 
 export class Bot {
-  private bot: Telegraf<IBotContext>;
+  private bot: TelegramBot;
   private commands: Command[] = [];
-  private readonly updateSemaphore: Semaphore;
-  private apiCallCounts = new Map<string, number>();
+  private readonly apiMonitor = new ApiCallMonitor();
+  private readonly updates: UpdateQueue;
   private apiStatsTimer?: NodeJS.Timeout;
 
   constructor(
     private readonly configService: ConfigService,
     private readonly dataSource: DataSource,
   ) {
-    this.bot = new Telegraf<IBotContext>(this.configService.get('TG_TOKEN'), { handlerTimeout: Infinity });
-    this.wrapCallApi();
-
-    // Telegraf runs a whole getUpdates batch (up to 100 updates) through
-    // Promise.all, so after downtime the backlog would mean dozens of
-    // concurrent Whisper/CLIP runs and a burst of replies. Gate every update
-    // through a semaphore before anything else sees it.
-    this.updateSemaphore = new Semaphore(this.configService.get('TG_UPDATE_CONCURRENCY'));
-    this.bot.use((_ctx, next) => {
-      if (this.updateSemaphore.pending > 0 && this.updateSemaphore.pending % 50 === 0) {
-        console.log(`Update queue: ${this.updateSemaphore.pending} waiting`);
-      }
-      return this.updateSemaphore.run(next);
-    });
-    this.bot.use(session());
+    const token = this.configService.get('TG_TOKEN');
+    this.bot = new GrammyBot<BotContext, BotApi>(token);
+    installApiTransformers(this.bot.api, token, this.apiMonitor);
+    this.updates = new UpdateQueue(this.bot, this.configService.get('TG_UPDATE_CONCURRENCY'));
     this.catchHandlerErrors();
   }
 
   /**
-   * Telegraf's default error handler rethrows, and `launch()` is never awaited,
-   * so anything a handler throws — a flaky Google Translate 500, a model that
-   * fails to load — becomes an unhandled rejection and takes the process down.
-   * One bad update must not stop the bot.
+   * The runner hands a failed update to `bot.catch` and carries on with the
+   * rest; without a handler the error would land in the log under the runner's
+   * "::: ERROR ERROR ERROR :::" banner.
    *
    * Only work the user actually asked for gets an apology in the chat. Most
    * updates are handled passively (every text message goes through toxicity
    * analysis), and a systemic failure over a 100-update backlog would answer
-   * with 100 messages — enough to hit the chat rate limit, whose retry_after
-   * sleep then stalls the real queue in `wrapCallApi`.
+   * with 100 messages — enough to hit the chat rate limit, and waiting that out
+   * stalls the real queue.
    */
   private catchHandlerErrors() {
-    this.bot.catch((error, ctx) => {
-      console.error(`Update ${ctx.update.update_id} (${ctx.updateType}) failed:`, error);
-      const message = ctx.message;
-      const isRequested =
-        ctx.updateType === 'callback_query' || (!!message && 'text' in message && message.text.startsWith('/'));
-      if (!isRequested) return;
-      ctx.reply('😵 Щось пішло не так, спробуй ще раз').catch((e) => console.error('Failed to report the error:', e));
+    this.bot.catch(({ error, ctx }) => {
+      const updateType = Object.keys(ctx.update).find((key) => key !== 'update_id');
+      console.error(`Update ${ctx.update.update_id} (${updateType}) failed:`, error);
+      const isRequested = !!ctx.callbackQuery || !!ctx.message?.text?.startsWith('/');
+      if (isRequested) apologize(ctx);
     });
   }
 
-  /**
-   * Every outgoing call — ctx.reply, ctx.react, getFileLink, getUpdates — goes
-   * through `callApi`, which makes it the one place to handle rate limits and
-   * to see the real outgoing rate. On 429 Telegram says how long to wait in
-   * `retry_after`; sleeping here holds the caller's semaphore slot, so the
-   * whole update queue pauses rather than piling more calls onto the limit.
-   */
-  private wrapCallApi() {
-    const telegram = this.bot.telegram;
-    const callApi = telegram.callApi.bind(telegram);
-    telegram.callApi = async (method, payload, options) => {
-      // getUpdates is long polling, not load — leave it out of the stats
-      if (method !== 'getUpdates') this.apiCallCounts.set(method, (this.apiCallCounts.get(method) ?? 0) + 1);
-      for (let attempt = 1; ; attempt++) {
-        try {
-          return await callApi(method, payload, options);
-        } catch (e) {
-          const retryAfter = e instanceof TelegramError && e.code === 429 ? e.parameters?.retry_after : undefined;
-          if (retryAfter === undefined || attempt >= MAX_RATE_LIMIT_RETRIES) throw e;
-          console.warn(`Telegram 429 on ${method} (attempt ${attempt}), waiting ${retryAfter}s`);
-          await sleep(retryAfter * 1000);
-        }
-      }
-    };
-  }
-
   private logApiStats() {
-    const entries = [...this.apiCallCounts];
-    this.apiCallCounts.clear();
+    const entries = this.apiMonitor.take();
     if (entries.length === 0) return;
     const total = entries.reduce((sum, [, count]) => sum + count, 0);
     const breakdown = entries
       .sort(([, a], [, b]) => b - a)
       .map(([method, count]) => `${method} ${count}`)
       .join(', ');
-    console.log(`Telegram API: ${total} calls/min (${breakdown}), queue: ${this.updateSemaphore.pending}`);
+    console.log(`Telegram API: ${total} calls/min (${breakdown}), queue: ${this.updates.waiting}`);
   }
 
   registerCommands(
     commands: Array<{
-      new (bot: Telegraf<IBotContext>, dataSource: DataSource, configService: ConfigService): Command;
+      new (bot: TelegramBot, dataSource: DataSource, configService: ConfigService): Command;
     }>,
   ) {
     const botCommands: BotCommand[] = [];
@@ -129,32 +102,39 @@ export class Bot {
     // Only fills the command menu in the Telegram UI — handlers are already
     // registered above, so this runs in the background: a transient network
     // failure must not delay or stop startup.
-    retry(() => this.bot.telegram.setMyCommands(botCommands), {
+    retry(() => this.bot.api.setMyCommands(botCommands), {
       shouldRetry: isTransientTelegramError,
       onRetry: (e, attempt, nextDelayMs) =>
         console.warn(`setMyCommands failed (attempt ${attempt}), retrying in ${nextDelayMs} ms:`, e),
     }).catch((e) => console.error('Failed to set bot commands:', e));
   }
 
-  start() {
-    // Promise alive until bot stopped
-    // eslint-disable-next-line @typescript-eslint/no-floating-promises
-    this.bot.launch();
+  /** Starts long polling; see `UpdateQueue.start` for when the promise settles */
+  start(): Promise<void> {
+    const polling = this.updates.start(this.bot);
     this.apiStatsTimer = setInterval(() => this.logApiStats(), API_STATS_INTERVAL_MS).unref();
     console.log('Bot started');
+    return polling;
   }
 
-  async stop(reason?: string) {
-    clearInterval(this.apiStatsTimer);
-    // Stop polling first, so no further batch is fetched while commands are
-    // disposed. The batch already fetched keeps running: Telegraf does not
-    // wait for it. Throws "Bot is not running!" when the signal comes before
-    // launch() got to polling — the commands still have to be disposed then.
-    try {
-      this.bot.stop(reason);
-    } catch (e) {
-      console.warn('Failed to stop the bot:', e);
+  /**
+   * Stops fetching and lets the work in progress finish: first the updates, then
+   * the commands are disposed, which lets their background work finish too (a
+   * running transcription). All of it gets STOP_TIMEOUT_MS together, then the
+   * shutdown goes on without it. The AI models go after this, released once by
+   * the caller, so none is released under running work unless time ran out.
+   */
+  async stop() {
+    const finished = this.finishWork().then(() => true);
+    if (!(await Promise.race([finished, sleep(STOP_TIMEOUT_MS, false, { ref: false })]))) {
+      console.warn(`Stopping with work unfinished (${this.updates.size} updates in progress)`);
     }
+    clearInterval(this.apiStatsTimer);
+  }
+
+  /** A command that fails to dispose is logged and the rest still are: the shutdown has to go on */
+  private async finishWork() {
+    await this.updates.stop();
     for (const command of this.commands) {
       try {
         await command.dispose();

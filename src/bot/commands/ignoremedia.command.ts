@@ -2,8 +2,9 @@ import { Command } from './command.class.js';
 import { AIService } from '../../services/ai.service.js';
 import { VideoService } from '../../services/video.service.js';
 import { IgnoredMedia, ChatPhotoMessage } from '../../entity/index.js';
-import { getLinkChatId } from '../../utils/telegram.utils.js';
+import { messageLink } from '../telegramLinks.js';
 import { findIgnoredMedia } from '../../dataSource/vectorSearch.js';
+import { downloadTelegramFile } from '../telegramFiles.js';
 
 export class IgnoreMediaCommand extends Command {
   public command = 'ignoremedia';
@@ -13,8 +14,8 @@ export class IgnoreMediaCommand extends Command {
 
   handle(): void {
     this.bot.command(this.command, async (ctx) => {
-      const messageId = ctx.message.message_id;
-      const replyToMessage = ctx.message.reply_to_message;
+      const messageId = ctx.msg.message_id;
+      const replyToMessage = ctx.msg.reply_to_message;
       const reply = (text: string) => ctx.reply(text, { reply_parameters: { message_id: messageId } });
 
       if (!replyToMessage) {
@@ -22,10 +23,9 @@ export class IgnoreMediaCommand extends Command {
         return;
       }
 
-      const isPhoto = 'photo' in replyToMessage && replyToMessage.photo;
-      const isVideo = 'video' in replyToMessage && replyToMessage.video;
+      const { photo, video } = replyToMessage;
 
-      if (!isPhoto && !isVideo) {
+      if (!photo && !video) {
         await reply('⚠️ Ця команда працює тільки з фото або відео.');
         return;
       }
@@ -35,7 +35,7 @@ export class IgnoreMediaCommand extends Command {
         const chatPhotoMessageRepository = this.dataSource.getRepository(ChatPhotoMessage);
 
         // Handle photo
-        if (isPhoto) {
+        if (photo) {
           // First, try to find existing embeddings in chat_photo_message table
           const existingPhotoMessage = await chatPhotoMessageRepository.findOne({
             select: { embedding: true },
@@ -53,20 +53,20 @@ export class IgnoreMediaCommand extends Command {
             embeddingString = JSON.stringify(existingPhotoMessage.embedding);
           } else {
             // Fallback: download and process photo
-            const fileId = replyToMessage.photo.at(-1)?.file_id;
+            const fileId = photo.at(-1)?.file_id;
             if (!fileId) {
               await reply('⚠️ Не вдалося отримати ID фото.');
               return;
             }
 
-            const fileUrl = await this.bot.telegram.getFileLink(fileId);
-            embeddingString = await this.aiService.getEmbeddingStringByImageUrl(fileUrl);
+            const imageBuffer = await downloadTelegramFile(this.bot.api, fileId);
+            embeddingString = await this.aiService.getEmbeddingStringByImageBuffer(imageBuffer);
           }
 
           await this.addToIgnoreList(chatId, replyToMessage.message_id, 'photo', [embeddingString], reply);
         }
         // Handle video
-        else if (isVideo) {
+        else if (video) {
           // First, try to find existing embeddings in chat_photo_message table
           const existingVideoMessages = await chatPhotoMessageRepository.find({
             select: { embedding: true },
@@ -87,18 +87,14 @@ export class IgnoreMediaCommand extends Command {
             frameEmbeddings = existingVideoMessages.map((msg) => JSON.stringify(msg.embedding));
           } else {
             // Fallback: download and process video
-            const fileId = replyToMessage.video.file_id;
+            const fileId = video.file_id;
             if (!fileId) {
               await reply('⚠️ Не вдалося отримати ID відео.');
               return;
             }
 
-            const fileUrl = await this.bot.telegram.getFileLink(fileId);
-
             // Download video file
-            const videoBuffer = await fetch(fileUrl.href)
-              .then((res) => res.arrayBuffer())
-              .then((ab) => Buffer.from(ab));
+            const videoBuffer = await downloadTelegramFile(this.bot.api, fileId);
 
             // Extract frames from video
             const frames = await this.videoService.extractFramesFromBuffer(videoBuffer);
@@ -136,11 +132,7 @@ export class IgnoreMediaCommand extends Command {
     const threshold = this.configService.get('MATCH_IMAGE_THRESHOLD');
     const existing = await findIgnoredMedia(this.dataSource, chatId, embeddings, threshold);
     if (existing) {
-      console.log(
-        'Media already in Ignore List',
-        `https://t.me/c/${getLinkChatId(chatId)}/${messageId}`,
-        `id: ${existing.id}`,
-      );
+      console.log('Media already in Ignore List', messageLink(chatId, messageId), `id: ${existing.id}`);
       await reply(
         mediaType === 'photo' ? 'ℹ️ Це медіа вже є у списку ігнорування.' : 'ℹ️ Це відео вже є у списку ігнорування.',
       );

@@ -1,13 +1,13 @@
-import { message } from 'telegraf/filters';
-import { TelegramEmoji } from 'telegraf/types';
+import type { ReactionTypeEmoji } from 'grammy/types';
 
 import { Command } from './command.class';
 import { AIService } from '../../services/ai.service';
 
 type LabelKey = 'insult' | 'obscene' | 'toxic' | 'sexy' | 'cute';
+type Reaction = ReactionTypeEmoji['emoji'];
 type LabelValue = {
   minScore: number;
-  reaction: TelegramEmoji;
+  reaction: Reaction;
 };
 
 export class ClassifyMessageCommand extends Command {
@@ -24,10 +24,10 @@ export class ClassifyMessageCommand extends Command {
   private labelList = Object.keys(this.labelsMap);
 
   handle(): void {
-    this.bot.on(message('text'), async (ctx, next) => {
-      const { labels, scores } = await this.aiService.zeroShotClassification(ctx.message.text, this.labelList);
+    this.bot.on('message:text', async (ctx, next) => {
+      const { labels, scores } = await this.aiService.zeroShotClassification(ctx.msg.text, this.labelList);
 
-      let reaction: TelegramEmoji | null = null;
+      let reaction: Reaction | null = null;
       for (let i = 0; i < scores.length && !reaction; i++) {
         if (reaction) break;
         const label = labels[i] as LabelKey;

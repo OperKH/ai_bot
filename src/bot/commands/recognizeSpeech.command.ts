@@ -1,12 +1,11 @@
 import fs from 'node:fs';
 import ffmpeg from 'fluent-ffmpeg';
 import wavefile from 'wavefile';
-import { NarrowedContext } from 'telegraf';
-import { Message, Update } from 'telegraf/types';
-import { message } from 'telegraf/filters';
 
 import { Command } from './command.class';
-import { IBotContext } from '../context/context.interface';
+import { TranscriptionQueue } from './transcriptionQueue';
+import type { MessageContext } from '../context/context.interface';
+import { downloadTelegramFile } from '../telegramFiles';
 import { AIService } from '../../services/ai.service';
 import { FileService } from '../../services/file.service';
 import { TrendsService } from '../../services/trends.service.js';
@@ -17,54 +16,73 @@ export class RecognizeSpeechCommand extends Command {
   private aiService = AIService.getInstance();
   private fileService = FileService.getInstance();
   private trendsService!: TrendsService;
+  private readonly transcriptions = new TranscriptionQueue();
 
   handle(): void {
     this.trendsService = TrendsService.getInstance(this.dataSource);
-    this.bot.on(message('voice'), async (ctx, next) => {
-      await this.messageHandler(ctx, ctx.message.voice.file_id, ctx.message.voice.duration, 'ogg');
+    this.bot.on('message:voice', async (ctx, next) => {
+      await this.messageHandler(ctx, ctx.msg.voice.file_id, ctx.msg.voice.duration, 'ogg');
       return next();
     });
 
-    this.bot.on(message('video_note'), async (ctx, next) => {
-      await this.messageHandler(ctx, ctx.message.video_note.file_id, ctx.message.video_note.duration, 'mp4');
+    this.bot.on('message:video_note', async (ctx, next) => {
+      await this.messageHandler(ctx, ctx.msg.video_note.file_id, ctx.msg.video_note.duration, 'mp4');
       return next();
     });
   }
 
-  private async messageHandler(
-    ctx: NarrowedContext<IBotContext, Update.MessageUpdate<Message>>,
-    fileId: string,
-    duration: number,
-    fileExt: string,
-  ) {
+  /**
+   * Answers with 💬 right away and queues the transcription (see
+   * `TranscriptionQueue`), so the update slot is free again once the 💬 is out.
+   */
+  private async messageHandler(ctx: MessageContext, fileId: string, duration: number, fileExt: string) {
+    const chatId = ctx.chat.id;
+    const messageId = ctx.message.message_id;
     try {
-      const replyMessage = await ctx.reply('💬', {
-        reply_parameters: { message_id: ctx.message.message_id },
-        disable_notification: true,
-      });
-      const text = await this.extractText(fileId, duration, fileExt);
-      await ctx.telegram.editMessageText(ctx.chat.id, replyMessage.message_id, undefined, text);
-
-      // Store transcribed text for trends analysis
-      if (text.startsWith('📝')) {
-        const transcribedText = text.slice(2).trim();
-        try {
-          await this.trendsService.storeMessage({
-            chatId: ctx.chat.id,
-            messageId: ctx.message.message_id,
-            userId: ctx.from.id,
-            userName: ctx.from.username || null,
-            userFirstName: ctx.from.first_name || null,
-            userLastName: ctx.from.last_name || null,
-            textContent: transcribedText,
-          });
-        } catch (e) {
-          console.error('Error storing transcribed message:', e);
-        }
-      }
+      await this.transcriptions.accept(
+        {
+          reply: async (text) => {
+            const reply = await ctx.reply(text, {
+              reply_parameters: { message_id: messageId },
+              disable_notification: true,
+            });
+            return reply.message_id;
+          },
+          edit: async (replyId, text) => {
+            await ctx.api.editMessageText(chatId, replyId, text);
+          },
+        },
+        async () => {
+          const text = await this.extractText(fileId, duration, fileExt);
+          if (text.startsWith('📝')) await this.storeForTrends(ctx, text.slice(2).trim());
+          return text;
+        },
+      );
     } catch (e) {
       console.log(e);
     }
+  }
+
+  /** Stores a transcription for trends analysis */
+  private async storeForTrends(ctx: MessageContext, transcribedText: string) {
+    try {
+      await this.trendsService.storeMessage({
+        chatId: ctx.chat.id,
+        messageId: ctx.message.message_id,
+        userId: ctx.from.id,
+        userName: ctx.from.username || null,
+        userFirstName: ctx.from.first_name || null,
+        userLastName: ctx.from.last_name || null,
+        textContent: transcribedText,
+      });
+    } catch (e) {
+      console.error('Error storing transcribed message:', e);
+    }
+  }
+
+  /** Lets the transcription in progress finish; the queued ones are dropped with a notice */
+  async dispose() {
+    await this.transcriptions.close();
   }
 
   private async extractText(fileId: string, duration: number, fileExt: string) {
@@ -72,8 +90,10 @@ export class RecognizeSpeechCommand extends Command {
     const wavFileName = `${fileId}.wav`;
     const wavFilePath = this.fileService.getFilePathByFileName(wavFileName);
     try {
-      const link = await this.bot.telegram.getFileLink(fileId);
-      const srcFilePath = await this.fileService.saveFileByUrl(link, srcFileName);
+      const srcFilePath = await this.fileService.saveFile(
+        await downloadTelegramFile(this.bot.api, fileId),
+        srcFileName,
+      );
       await new Promise((resolve, reject) => {
         ffmpeg(srcFilePath)
           .audioFrequency(16000)

@@ -1,3 +1,4 @@
+import { GrammyError } from 'grammy';
 import { Loader } from './loader.class';
 
 export class ClockLoader extends Loader {
@@ -18,18 +19,19 @@ export class ClockLoader extends Loader {
       });
       this.messageId = message.message_id;
     }
+    const messageId = this.messageId;
 
     clearTimeout(this.timeoutId);
     this.timeoutId = setTimeout(async () => {
       this.emojiIndex = this.emojiIndex < this.emojiList.length - 1 ? this.emojiIndex + 1 : 0;
       try {
-        await this.ctx.telegram.editMessageText(this.ctx.chat.id, this.messageId, '', this.currentEmoji);
+        await this.ctx.api.editMessageText(this.ctx.chat.id, messageId, this.currentEmoji);
         // Allow run in background and release message queue
         // eslint-disable-next-line @typescript-eslint/no-floating-promises
         this.start();
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      } catch (e: any) {
-        const sec = e?.response?.parameters?.retry_after ?? 15;
+      } catch (e) {
+        // A 429 reaches here only once the API client has run out of retries
+        const sec = (e instanceof GrammyError ? e.parameters.retry_after : undefined) ?? 15;
         console.log(`Temp ban for ${sec} sec`);
         // Allow run in background and release message queue
         // eslint-disable-next-line @typescript-eslint/no-floating-promises

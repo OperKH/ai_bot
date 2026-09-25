@@ -1,65 +1,10 @@
-import { message } from 'telegraf/filters';
+import { InlineKeyboard } from 'grammy';
 import { Command } from './command.class.js';
+import { downloadUpdateFile } from '../telegramFiles.js';
 import { TrendsService } from '../../services/trends.service.js';
-import { OpenAIService, SummarizationResult } from '../../services/openai.service.js';
-import { getLinkChatId } from '../../utils/telegram.utils.js';
-
-const TELEGRAM_MESSAGE_LIMIT = 4096;
-
-/**
- * Splits a long message into chunks by sections (double newlines).
- * Each chunk contains complete sections that fit within the limit.
- */
-function splitMessage(text: string, limit: number = TELEGRAM_MESSAGE_LIMIT): string[] {
-  if (text.length <= limit) {
-    return [text];
-  }
-
-  const sections = text.split('\n\n');
-  const chunks: string[] = [];
-  let currentChunk = '';
-
-  for (const section of sections) {
-    const sectionWithSeparator = currentChunk ? '\n\n' + section : section;
-
-    if (currentChunk.length + sectionWithSeparator.length <= limit) {
-      // Section fits in current chunk
-      currentChunk += sectionWithSeparator;
-    } else if (section.length > limit) {
-      // Section itself is too long - need to split it by lines
-      if (currentChunk) {
-        chunks.push(currentChunk);
-        currentChunk = '';
-      }
-
-      // Split oversized section by lines
-      const lines = section.split('\n');
-      for (const line of lines) {
-        const lineWithSeparator = currentChunk ? '\n' + line : line;
-        if (currentChunk.length + lineWithSeparator.length <= limit) {
-          currentChunk += lineWithSeparator;
-        } else {
-          if (currentChunk) {
-            chunks.push(currentChunk);
-          }
-          currentChunk = line;
-        }
-      }
-    } else {
-      // Section doesn't fit - start new chunk
-      if (currentChunk) {
-        chunks.push(currentChunk);
-      }
-      currentChunk = section;
-    }
-  }
-
-  if (currentChunk) {
-    chunks.push(currentChunk);
-  }
-
-  return chunks;
-}
+import { OpenAIService } from '../../services/openai.service.js';
+import { getLinkChatId } from '../telegramLinks.js';
+import { escapeMarkdown, formatSummary, splitMessage } from './trendsMessage.js';
 
 const PERIOD_LABELS: Record<number, string> = {
   3: '3 години',
@@ -69,76 +14,6 @@ const PERIOD_LABELS: Record<number, string> = {
   48: '2 дні',
   72: '3 дні',
 };
-
-function escapeMarkdown(text: string): string {
-  return text.replace(/[_*[\]()~`>#+=|{}.!-]/g, '\\$&');
-}
-
-function formatMessageLinks(chatId: number, messageIds: string[]): string {
-  if (!messageIds || messageIds.length === 0) return '';
-  const linkChatId = getLinkChatId(chatId);
-  const links = messageIds.map((messageId) => `[💬](https://t.me/c/${linkChatId}/${messageId})`).join(' ');
-  return ` ${links}`;
-}
-
-function formatSummary(result: SummarizationResult, periodLabel: string, chatId: number): string {
-  const lines: string[] = [
-    `📰 *Тренди за останні ${escapeMarkdown(periodLabel)}*`,
-    '',
-    '*🔥 Топ учасників:*',
-    ...result.topParticipants.map(
-      (p, i) =>
-        `${i + 1}\\. *${escapeMarkdown(p.name)}* \\(@${escapeMarkdown(p.nickName)}\\) — ${p.messageCount} повідомлень` +
-        (p.summary ? `\n   _${escapeMarkdown(p.summary)}_` : ''),
-    ),
-  ];
-
-  if (result.topics && result.topics.length > 0) {
-    lines.push(
-      '',
-      '*🗣️ Основні теми:*',
-      ...result.topics.map((t) => `• ${escapeMarkdown(t.topic)}${formatMessageLinks(chatId, t.messageIds)}`),
-    );
-  }
-
-  if (result.trends && result.trends.length > 0) {
-    lines.push(
-      '',
-      '*📈 Тренди:*',
-      ...result.trends.map((t) => `• ${escapeMarkdown(t.trend)}${formatMessageLinks(chatId, t.messageIds)}`),
-    );
-  }
-
-  if (result.gaming) {
-    lines.push(
-      '',
-      '*🎮 Ігрова тематика:*',
-      `${escapeMarkdown(result.gaming.summary)}${formatMessageLinks(chatId, result.gaming.messageIds)}`,
-    );
-  }
-
-  if (result.memes) {
-    lines.push(
-      '',
-      '*😂 Мем\\-тренди:*',
-      `${escapeMarkdown(result.memes.summary)}${formatMessageLinks(chatId, result.memes.messageIds)}`,
-    );
-  }
-
-  if (result.events && result.events.length > 0) {
-    lines.push(
-      '',
-      '*📅 Заплановані події:*',
-      ...result.events.map((e) => `• ${escapeMarkdown(e.event)}${formatMessageLinks(chatId, e.messageIds)}`),
-    );
-  }
-
-  if (result.fullSummary) {
-    lines.push('', '*📝 Загальний підсумок:*', escapeMarkdown(result.fullSummary));
-  }
-
-  return lines.join('\n');
-}
 
 export class TrendsCommand extends Command {
   public command = 'trends';
@@ -151,14 +26,14 @@ export class TrendsCommand extends Command {
     this.trendsService.startCleanupJob();
 
     // Message listeners that call next() for non-blocking storage
-    this.bot.on(message('text'), async (ctx, next) => {
+    this.bot.on('message:text', async (ctx, next) => {
       const chatId = ctx.chat.id;
-      const messageId = ctx.message.message_id;
+      const messageId = ctx.msg.message_id;
       const userId = ctx.from.id;
       const userName = ctx.from.username || null;
       const userFirstName = ctx.from.first_name || null;
       const userLastName = ctx.from.last_name || null;
-      const textContent = ctx.message.text;
+      const textContent = ctx.msg.text;
 
       // Don't store command messages
       if (!textContent.startsWith('/')) {
@@ -180,24 +55,29 @@ export class TrendsCommand extends Command {
       return next();
     });
 
-    this.bot.on(message('photo'), async (ctx, next) => {
+    this.bot.on('message:photo', async (ctx, next) => {
       const chatId = ctx.chat.id;
-      const messageId = ctx.message.message_id;
+      const messageId = ctx.msg.message_id;
       const userId = ctx.from.id;
       const userName = ctx.from.username || null;
       const userFirstName = ctx.from.first_name || null;
       const userLastName = ctx.from.last_name || null;
-      const caption = ctx.message.caption || '';
+      const caption = ctx.msg.caption || '';
 
       try {
         // Try to get image description
         let mediaDescription: string | null = null;
         try {
-          const fileId = ctx.message.photo.at(-1)?.file_id;
+          const fileId = ctx.msg.photo.at(-1)?.file_id;
           if (fileId) {
-            const fileUrl = await this.bot.telegram.getFileLink(fileId);
+            const image = await downloadUpdateFile(this.bot.api, ctx.update, fileId);
             console.log(`[Trends] Describing image with OpenAI for chat ${getLinkChatId(chatId)}`);
-            mediaDescription = await this.openaiService.describeImage(fileUrl.href);
+            // Sent as data, not as a link: a Telegram file link carries the bot
+            // token, and the request is kept in OpenAI's and Langfuse's logs.
+            // Telegram re-encodes every photo as JPEG.
+            mediaDescription = await this.openaiService.describeImage(
+              `data:image/jpeg;base64,${image.toString('base64')}`,
+            );
           }
         } catch (e) {
           console.error('Error getting image description:', e);
@@ -221,14 +101,14 @@ export class TrendsCommand extends Command {
       return next();
     });
 
-    this.bot.on(message('video'), async (ctx, next) => {
+    this.bot.on('message:video', async (ctx, next) => {
       const chatId = ctx.chat.id;
-      const messageId = ctx.message.message_id;
+      const messageId = ctx.msg.message_id;
       const userId = ctx.from.id;
       const userName = ctx.from.username || null;
       const userFirstName = ctx.from.first_name || null;
       const userLastName = ctx.from.last_name || null;
-      const caption = ctx.message.caption || '';
+      const caption = ctx.msg.caption || '';
 
       try {
         await this.trendsService.storeMessage({
@@ -250,40 +130,34 @@ export class TrendsCommand extends Command {
 
     // /trends command handler
     this.bot.command(this.command, async (ctx) => {
-      const inlineKeyboard = {
-        inline_keyboard: [
-          [
-            { text: '3г', callback_data: 'trends-3' },
-            { text: '6г', callback_data: 'trends-6' },
-            { text: '12г', callback_data: 'trends-12' },
-          ],
-          [
-            { text: '24г', callback_data: 'trends-24' },
-            { text: '2д', callback_data: 'trends-48' },
-            { text: '3д', callback_data: 'trends-72' },
-          ],
-        ],
-      };
+      const inlineKeyboard = new InlineKeyboard()
+        .text('3г', 'trends-3')
+        .text('6г', 'trends-6')
+        .text('12г', 'trends-12')
+        .row()
+        .text('24г', 'trends-24')
+        .text('2д', 'trends-48')
+        .text('3д', 'trends-72');
 
       await ctx.reply('📊 Обери період для аналізу трендів:', {
-        reply_parameters: { message_id: ctx.message.message_id },
+        reply_parameters: { message_id: ctx.msg.message_id },
         reply_markup: inlineKeyboard,
       });
     });
 
     // Callback handler for period selection
-    this.bot.action(/^trends-(\d+)$/, async (ctx) => {
+    this.bot.callbackQuery(/^trends-(\d+)$/, async (ctx) => {
       const hours = parseInt(ctx.match[1], 10);
       const periodLabel = PERIOD_LABELS[hours] || `${hours} годин`;
       const chatId = ctx.chat?.id;
 
       if (!chatId) {
-        await ctx.answerCbQuery('❌ Помилка: чат не знайдено');
+        await ctx.answerCallbackQuery('❌ Помилка: чат не знайдено');
         return;
       }
 
       // Answer callback query immediately
-      await ctx.answerCbQuery();
+      await ctx.answerCallbackQuery();
 
       // Edit original message to show loading state
       await ctx.editMessageText(`📊 Обрано період: ${periodLabel}\n\n🦙 Аналізую...`);
@@ -304,15 +178,9 @@ export class TrendsCommand extends Command {
           responseText = formatSummary(result, periodLabel, chatId);
         }
 
-        const chunks = splitMessage(responseText);
-
-        // Send chunks with delays to avoid rate limiting
-        for (let i = 0; i < chunks.length; i++) {
-          if (i > 0) {
-            // Add delay between messages to avoid rate limiting
-            await new Promise((resolve) => setTimeout(resolve, 1000));
-          }
-          await ctx.telegram.sendMessage(chatId, chunks[i], {
+        // No pause between chunks: the API client paces sends to Telegram's limits
+        for (const chunk of splitMessage(responseText)) {
+          await ctx.api.sendMessage(chatId, chunk, {
             parse_mode: 'MarkdownV2',
           });
         }

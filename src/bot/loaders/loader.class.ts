@@ -1,9 +1,7 @@
-import { NarrowedContext } from 'telegraf';
-import { Message, Update } from 'telegraf/types';
-import { IBotContext } from '../context/context.interface';
+import type { MessageContext } from '../context/context.interface';
 
 export abstract class Loader {
-  constructor(public readonly ctx: NarrowedContext<IBotContext, Update.MessageUpdate<Message>>) {}
+  constructor(public readonly ctx: MessageContext) {}
 
   public abstract start(...args: unknown[]): Promise<void>;
 

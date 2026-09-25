@@ -1,7 +1,15 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import type { MediaMatch } from '../../dataSource/vectorSearch';
-import { MatchReplyPort, parseMoreCallback, replyWithDuplicates, showSearchPage } from './mediaMatchReplies';
+import {
+  MatchReplyPort,
+  MorePressPort,
+  parseMoreCallback,
+  PressedSearch,
+  pressMore,
+  replyWithDuplicates,
+  showSearchPage,
+} from './mediaMatchReplies';
 
 type Sent = { id: number; text: string; replyTo?: number; attached?: boolean };
 
@@ -39,8 +47,6 @@ class FakeChat implements MatchReplyPort {
   async forget(messageId: string) {
     this.forgotten.push(messageId);
   }
-
-  async pause() {}
 
   /** What stays in the chat: sent and not taken back */
   visible() {
@@ -306,5 +312,62 @@ describe('parseMoreCallback', () => {
   it('rejects anything else', () => {
     assert.equal(parseMoreCallback('himp-r'), null);
     assert.equal(parseMoreCallback('islm-'), null);
+  });
+});
+
+/** A search in the store, and a chat that logs what a press on its button did, in order */
+class FakePress implements MorePressPort<PressedSearch> {
+  readonly log: string[] = [];
+  readonly search: PressedSearch = { buttonMessageId: '100' };
+
+  async answer(text?: string) {
+    this.log.push(text === undefined ? 'answer' : `answer: ${text}`);
+  }
+
+  async removeKeyboard() {
+    this.log.push('removeKeyboard');
+  }
+
+  async releaseButton(search: PressedSearch) {
+    search.buttonMessageId = null;
+    this.log.push('releaseButton');
+  }
+
+  showNextPage() {
+    this.log.push('showNextPage');
+  }
+}
+
+describe('pressMore', () => {
+  const EXPIRED = '🙈 Цей пошук застарів';
+
+  it('takes the button off before the next page goes out, and releases it first', async () => {
+    const chat = new FakePress();
+    await pressMore(chat, chat.search, 100, EXPIRED);
+    assert.deepEqual(chat.log, ['answer', 'removeKeyboard', 'releaseButton', 'showNextPage']);
+    assert.equal(chat.search.buttonMessageId, null);
+  });
+
+  it('shows one page for a double tap on the same button', async () => {
+    const chat = new FakePress();
+    // The second tap is handled once the first one has handed its page over
+    await pressMore(chat, chat.search, 100, EXPIRED);
+    await pressMore(chat, chat.search, 100, EXPIRED);
+    assert.equal(chat.log.filter((step) => step === 'showNextPage').length, 1);
+    assert.deepEqual(chat.log.slice(4), ['answer', 'removeKeyboard'], 'the second tap only loses its keyboard');
+  });
+
+  it('ignores a button from an earlier page of the search', async () => {
+    const chat = new FakePress();
+    chat.search.buttonMessageId = '200';
+    await pressMore(chat, chat.search, 100, EXPIRED);
+    assert.deepEqual(chat.log, ['answer', 'removeKeyboard']);
+    assert.equal(chat.search.buttonMessageId, '200', 'the live button stays live');
+  });
+
+  it('tells that a search is gone and takes its button off', async () => {
+    const chat = new FakePress();
+    await pressMore(chat, null, 100, EXPIRED);
+    assert.deepEqual(chat.log, [`answer: ${EXPIRED}`, 'removeKeyboard']);
   });
 });

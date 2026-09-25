@@ -1,28 +1,20 @@
-import { setTimeout as sleep } from 'node:timers/promises';
-import { Context, NarrowedContext } from 'telegraf';
-import { CallbackQuery, Message, Update } from 'telegraf/types';
-import { message } from 'telegraf/filters';
+import { type CallbackQueryContext, InlineKeyboard } from 'grammy';
 import { TelegramClient, Api, sessions, errors } from 'telegram';
 import { FindOptionsWhere, LessThan } from 'typeorm';
 import { Command } from './command.class';
-import { IBotContext } from '../context/context.interface';
+import { apologize } from '../bot.class';
+import type { BotContext, MessageContext } from '../context/context.interface';
+import { downloadTelegramFile, downloadUpdateFile } from '../telegramFiles';
 import { AIService, FrameEmbedding } from '../../services/ai.service';
 import { VideoService } from '../../services/video.service';
 import { ChatPhotoMessage, ChatState, MediaSearch } from '../../entity/index';
 import { findIgnoredMedia, findSimilarMedia } from '../../dataSource/vectorSearch';
-import { getLinkChatId } from '../../utils/telegram.utils.js';
-import { MatchReplyPort, parseMoreCallback, replyWithDuplicates, showSearchPage } from './mediaMatchReplies';
+import { messageLink } from '../telegramLinks.js';
+import { BackgroundQueue } from '../backgroundQueue';
+import { MatchReplyPort, parseMoreCallback, pressMore, replyWithDuplicates, showSearchPage } from './mediaMatchReplies';
 
 /** Media messages added during an import so far */
 type ImportCounters = { photos: number; videos: number };
-
-type MessageContext = NarrowedContext<IBotContext, Update.MessageUpdate<Message>>;
-
-/**
- * A context that can reply in a chat: a message, or a button press under one.
- * Imports and searches are started either way, by a command or by a button.
- */
-type ReplyContext = MessageContext | Context<Update.CallbackQueryUpdate<CallbackQuery>>;
 
 /** How often the running tally is logged, in added messages */
 const IMPORT_TALLY_EVERY = 100;
@@ -44,6 +36,7 @@ export class MediaTrackerCommand extends Command {
   private tgClient: TelegramClient | null = null;
   private isMediaImporting = false;
   private searchCleanupTimer: NodeJS.Timeout | undefined;
+  private readonly searchPages = new BackgroundQueue('Search page');
 
   handle(): void {
     // The first pass also catches up on what expired while the bot was down
@@ -54,8 +47,8 @@ export class MediaTrackerCommand extends Command {
       this.removeExpiredSearches();
     }, SEARCH_CLEANUP_EVERY_MS).unref();
 
-    this.bot.on(message('photo'), async (ctx, next) => {
-      const fileId = ctx.message.photo.at(-1)?.file_id;
+    this.bot.on('message:photo', async (ctx, next) => {
+      const fileId = ctx.msg.photo.at(-1)?.file_id;
       if (fileId) {
         try {
           await this.photoMessageHandler(ctx, fileId);
@@ -65,8 +58,8 @@ export class MediaTrackerCommand extends Command {
       }
       return next();
     });
-    this.bot.on(message('video'), async (ctx, next) => {
-      const fileId = ctx.message.video.file_id;
+    this.bot.on('message:video', async (ctx, next) => {
+      const fileId = ctx.msg.video.file_id;
       if (fileId) {
         try {
           await this.videoMessageHandler(ctx, fileId);
@@ -77,41 +70,49 @@ export class MediaTrackerCommand extends Command {
       return next();
     });
     this.bot.command(this.command, async (ctx) => {
-      if (ctx.payload) {
-        const search = await this.createSearch(ctx.chat.id, ctx.payload);
-        await this.searchAndReplyPaginated(ctx, ctx.message.message_id, search);
+      if (ctx.match) {
+        const search = await this.createSearch(ctx.chat.id, ctx.match);
+        this.showPageInBackground(ctx, ctx.msg.message_id, search);
       } else {
         await ctx.reply(`ℹ️ Додай пошуковий запит після команди, наприклад: /${this.command} ігрова консоль`, {
-          reply_parameters: { message_id: ctx.message.message_id },
+          reply_parameters: { message_id: ctx.msg.message_id },
         });
       }
     });
-    // Any `islm-` button: the old ones carry JSON and are told to search again
-    this.bot.action(/^islm-/, async (ctx) => {
-      const searchId = parseMoreCallback(ctx.match.input);
+    // Any `islm-` button (see `pressMore`): the old ones carry JSON and are told to search again
+    this.bot.callbackQuery(/^islm-/, async (ctx) => {
+      const repository = this.dataSource.getRepository(MediaSearch);
+      const searchId = parseMoreCallback(ctx.callbackQuery.data);
       const search =
         searchId === null || !ctx.chat
           ? null
-          : await this.dataSource.getRepository(MediaSearch).findOneBy({ id: searchId, chatId: String(ctx.chat.id) });
-      if (!search) {
-        await ctx.answerCbQuery(`🙈 Цей пошук застарів, повтори /${this.command}`);
-        await ctx.editMessageReplyMarkup({ inline_keyboard: [] });
-        return;
-      }
-      await ctx.answerCbQuery();
-      await this.searchAndReplyPaginated(ctx, undefined, search);
-      await ctx.editMessageReplyMarkup({ inline_keyboard: [] });
+          : await repository.findOneBy({ id: searchId, chatId: String(ctx.chat.id) });
+      await pressMore(
+        {
+          answer: async (text) => {
+            await ctx.answerCallbackQuery(text);
+          },
+          removeKeyboard: () => this.removeKeyboard(ctx),
+          releaseButton: async ({ id }) => {
+            await repository.update(id, { buttonMessageId: null });
+          },
+          showNextPage: (pressed) => this.showPageInBackground(ctx, undefined, pressed),
+        },
+        search,
+        ctx.callbackQuery.message?.message_id,
+        `🙈 Цей пошук застарів, повтори /${this.command}`,
+      );
     });
     this.bot.command('starthistoryimport', async (ctx) => {
       // Run in background and release the update slot
-      this.runImportInBackground(ctx, ctx.chat.id, ctx.message.message_id, this.parseImportWindow(ctx.payload));
+      this.runImportInBackground(ctx, ctx.chat.id, ctx.msg.message_id, this.parseImportWindow(ctx.match));
     });
     // Keyboard offered when an import breaks partway. Either answer hides it,
     // so the dead buttons cannot be pressed again later.
-    this.bot.action(IMPORT_ACTION_RE, async (ctx) => {
+    this.bot.callbackQuery(IMPORT_ACTION_RE, async (ctx) => {
       const [, action, window] = ctx.match;
-      await ctx.answerCbQuery();
-      await ctx.editMessageReplyMarkup({ inline_keyboard: [] });
+      await ctx.answerCallbackQuery();
+      await this.removeKeyboard(ctx);
 
       if (action === 'c') {
         await ctx.reply('🆗 Гаразд, залишаю як є.');
@@ -130,8 +131,8 @@ export class MediaTrackerCommand extends Command {
   private async photoMessageHandler(ctx: MessageContext, fileId: string) {
     if (this.isMediaImporting) return;
 
-    const fileUrl = await this.bot.telegram.getFileLink(fileId);
-    const embedding = await this.aiService.getEmbeddingStringByImageUrl(fileUrl);
+    const imageBuffer = await downloadUpdateFile(this.bot.api, ctx.update, fileId);
+    const embedding = await this.aiService.getEmbeddingStringByImageBuffer(imageBuffer);
     await this.trackMedia(ctx, 'photo', [{ frameIndex: 0, embedding }]);
   }
 
@@ -152,10 +153,7 @@ export class MediaTrackerCommand extends Command {
    * function keeps all its locals alive, used or not.
    */
   private async embedVideo(fileId: string): Promise<FrameEmbedding[]> {
-    const fileUrl = await this.bot.telegram.getFileLink(fileId);
-    const videoBuffer = await fetch(fileUrl.href)
-      .then((res) => res.arrayBuffer())
-      .then((ab) => Buffer.from(ab));
+    const videoBuffer = await downloadTelegramFile(this.bot.api, fileId);
     const frames = await this.videoService.extractFramesFromBuffer(videoBuffer);
     return this.aiService.getFrameEmbeddings(frames);
   }
@@ -173,7 +171,7 @@ export class MediaTrackerCommand extends Command {
 
     try {
       if (await findIgnoredMedia(this.dataSource, chatId, embeddings, threshold)) {
-        console.log('mediaIgnored', `https://t.me/c/${getLinkChatId(chatId)}/${messageId}`);
+        console.log('mediaIgnored', messageLink(chatId, messageId));
       } else {
         const matches = await findSimilarMedia(this.dataSource, { chatId, embeddings, threshold });
         const limit = this.configService.get('MATCH_IMAGE_COUNT');
@@ -228,8 +226,8 @@ export class MediaTrackerCommand extends Command {
     for (const { id, chatId, buttonMessageId } of searches) {
       if (buttonMessageId === null) continue;
       try {
-        await this.bot.telegram.editMessageReplyMarkup(Number(chatId), Number(buttonMessageId), undefined, {
-          inline_keyboard: [],
+        await this.bot.api.editMessageReplyMarkup(Number(chatId), Number(buttonMessageId), {
+          reply_markup: { inline_keyboard: [] },
         });
       } catch (e) {
         // The reply is gone or the bot left the chat: the row goes all the same,
@@ -241,8 +239,37 @@ export class MediaTrackerCommand extends Command {
     return searches.length;
   }
 
+  /**
+   * Takes the keyboard off the message whose button was pressed. It may be gone
+   * already — a second tap on the same button — and Telegram refuses an edit
+   * that changes nothing, which must not end up as an error in the chat.
+   */
+  private async removeKeyboard(ctx: CallbackQueryContext<BotContext>) {
+    try {
+      await ctx.editMessageReplyMarkup({ reply_markup: { inline_keyboard: [] } });
+    } catch (e) {
+      console.log('Could not take the keyboard off:', e);
+    }
+  }
+
+  /**
+   * Shows a search page without holding the update slot. A page skips results
+   * whose message is gone, and finding that out costs a reply sent and taken
+   * back for each, paced to Telegram's limits — in a chat with many deleted
+   * messages a page takes minutes, and the chat's other updates must not wait
+   * for it. Pages run one at a time, so two searches do not interleave.
+   */
+  private showPageInBackground(ctx: BotContext, firstMessageId: number | undefined, search: MediaSearch) {
+    this.searchPages.push(() => this.searchAndReplyPaginated(ctx, firstMessageId, search), {
+      onError: (e) => {
+        console.error('Search page failed:', e);
+        apologize(ctx);
+      },
+    });
+  }
+
   /** Shows the next page of a search and stores where it stopped (see `showSearchPage`) */
-  private async searchAndReplyPaginated(ctx: ReplyContext, firstMessageId: number | undefined, search: MediaSearch) {
+  private async searchAndReplyPaginated(ctx: BotContext, firstMessageId: number | undefined, search: MediaSearch) {
     const chatId = Number(search.chatId);
     const embeddingString = JSON.stringify(search.embedding);
     const { cursor, buttonMessageId } = await showSearchPage(this.matchReplyPort(ctx, chatId), {
@@ -271,7 +298,7 @@ export class MediaTrackerCommand extends Command {
   }
 
   /** Telegram and the database behind the replies of `mediaMatchReplies` */
-  private matchReplyPort(ctx: ReplyContext, chatId: number): MatchReplyPort {
+  private matchReplyPort(ctx: BotContext, chatId: number): MatchReplyPort {
     return {
       send: async (text, replyToId) => {
         const sent = await ctx.reply(
@@ -284,21 +311,17 @@ export class MediaTrackerCommand extends Command {
         const reply = await ctx.reply(text, {
           reply_parameters: { message_id: replyToId, allow_sending_without_reply: true },
           disable_notification: true,
-          reply_markup:
-            moreCallbackData === undefined
-              ? undefined
-              : { inline_keyboard: [[{ text: 'Ще', callback_data: moreCallbackData }]] },
+          reply_markup: moreCallbackData === undefined ? undefined : new InlineKeyboard().text('Ще', moreCallbackData),
         });
         return { messageId: reply.message_id, attached: Boolean(reply.reply_to_message) };
       },
       delete: async (messageId) => {
-        await ctx.deleteMessage(messageId);
+        await ctx.api.deleteMessage(chatId, messageId);
       },
       forget: async (messageId) => {
         await this.dataSource.getRepository(ChatPhotoMessage).delete({ chatId: String(chatId), messageId });
-        console.log('mediaDeleted', `https://t.me/c/${getLinkChatId(chatId)}/${messageId}`);
+        console.log('mediaDeleted', messageLink(chatId, messageId));
       },
-      pause: () => sleep(1000),
     };
   }
 
@@ -309,7 +332,7 @@ export class MediaTrackerCommand extends Command {
    * throw in turn, and that one has nowhere to go.
    */
   private runImportInBackground(
-    ctx: ReplyContext,
+    ctx: BotContext,
     chatId: number,
     messageId: number,
     importWindow: number | 'all' | undefined,
@@ -324,7 +347,7 @@ export class MediaTrackerCommand extends Command {
    * @param importWindow - The `/starthistoryimport` argument, carried as-is through a retry
    */
   private async startHistoryImport(
-    ctx: ReplyContext,
+    ctx: BotContext,
     chatId: number,
     messageId: number,
     importWindow: number | 'all' | undefined,
@@ -416,14 +439,11 @@ export class MediaTrackerCommand extends Command {
       const retryWindow = importWindow === undefined ? '' : `-${importWindow}`;
       await ctx.reply(`📛 Халепа! Імпорт обірвався.\n${this.formatAdded(added)}\nℹ️ Продовжити з того ж місця?`, {
         reply_parameters: { message_id: messageId },
-        reply_markup: {
-          inline_keyboard: [
-            [
-              { text: '🔁 Продовжити', callback_data: `himp-r${retryWindow}` },
-              { text: '🚫 Скасувати', callback_data: 'himp-c' },
-            ],
-          ],
-        },
+        reply_markup: new InlineKeyboard()
+          .text('🔁 Продовжити', `himp-r${retryWindow}`)
+          .success()
+          .text('🚫 Скасувати', 'himp-c')
+          .danger(),
       });
     } finally {
       this.isMediaImporting = false;
@@ -438,9 +458,9 @@ export class MediaTrackerCommand extends Command {
    * with a fresh reference. One retry is enough, a reference seconds old does
    * not expire twice.
    *
-   * Unlike the 429 handling in `wrapCallApi`, this cannot sit in a wrapper
-   * around the client: recovering needs the message the file came from, which
-   * only the caller knows.
+   * Unlike the Bot API client's 429 retries (`apiTransformers.ts`), this cannot
+   * sit in a wrapper around the client: recovering needs the message the file
+   * came from, which only the caller knows.
    */
   private async downloadMedia(media: Api.Photo | Api.Document, chatId: number, messageId: number) {
     try {
@@ -740,7 +760,9 @@ export class MediaTrackerCommand extends Command {
     }
   }
 
+  /** Lets the search page in progress finish; a history import is not waited for, it runs for hours */
   async dispose() {
     clearInterval(this.searchCleanupTimer);
+    await this.searchPages.close();
   }
 }

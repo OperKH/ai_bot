@@ -6,7 +6,8 @@ export class ClockCommand extends Command {
   public description = '🕓 Демо годинника';
 
   handle(): void {
-    this.bot.command(this.command, async (ctx) => {
+    // Messages only: the loader replies to the command, which a channel post cannot be
+    this.bot.on('message').command(this.command, async (ctx) => {
       console.log('Clock started');
       try {
         await ctx.deleteMessage();
@@ -18,7 +19,7 @@ export class ClockCommand extends Command {
       await new Promise((resolve) => setTimeout(resolve, 25000));
       const messageId = clockLoader.stop();
       if (messageId) {
-        await ctx.telegram.deleteMessage(ctx.chat.id, messageId);
+        await ctx.api.deleteMessage(ctx.chat.id, messageId);
       }
       console.log('Clock stopped');
     });

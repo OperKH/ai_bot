@@ -1,6 +1,5 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import https from 'node:https';
 
 export class FileService {
   private static instance: FileService;
@@ -26,24 +25,10 @@ export class FileService {
     return path.resolve(this.mediaPath, fileName);
   }
 
-  async saveFileByUrl(url: string | URL, fileName: string) {
+  async saveFile(data: Buffer, fileName: string) {
     this.createMediaFolder();
     const filePath = this.getFilePathByFileName(fileName);
-    const file = fs.createWriteStream(filePath);
-    await new Promise((resolve, reject) => {
-      https.get(url, (res) => {
-        if (!res.statusCode || res.statusCode < 200 || res.statusCode >= 300) {
-          reject(new Error(`Failed, status code: ${res.statusCode}`));
-        }
-        res.on('error', reject);
-        file.on('error', reject);
-        file.on('finish', () => {
-          file.close();
-          resolve(true);
-        });
-        res.pipe(file);
-      });
-    });
+    await fs.promises.writeFile(filePath, data);
     return filePath;
   }
 

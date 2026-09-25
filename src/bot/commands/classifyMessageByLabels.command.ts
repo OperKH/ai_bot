@@ -44,8 +44,4 @@ export class ClassifyMessageCommand extends Command {
       return next();
     });
   }
-
-  async dispose() {
-    await this.aiService.dispose();
-  }
 }

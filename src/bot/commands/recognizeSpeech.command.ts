@@ -99,8 +99,4 @@ export class RecognizeSpeechCommand extends Command {
       ]);
     }
   }
-
-  async dispose() {
-    await this.aiService.dispose();
-  }
 }

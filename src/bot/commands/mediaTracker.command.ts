@@ -742,6 +742,5 @@ export class MediaTrackerCommand extends Command {
 
   async dispose() {
     clearInterval(this.searchCleanupTimer);
-    await this.aiService.dispose();
   }
 }

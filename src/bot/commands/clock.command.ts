@@ -23,6 +23,4 @@ export class ClockCommand extends Command {
       console.log('Clock stopped');
     });
   }
-
-  async dispose() {}
 }

@@ -83,12 +83,32 @@ export class AIService {
   private zeroShotClassificationPipeline: Promise<ZeroShotClassificationPipeline> | null = null;
   private automaticSpeechRecognitionPipeline: Promise<AutomaticSpeechRecognitionPipeline> | null = null;
 
-  public async dispose() {
-    await Promise.all([
-      this.sentimentAnalysisPipeline?.then((c) => c.dispose()),
-      this.toxicAnalysisPipeline?.then((c) => c.dispose()),
-      this.automaticSpeechRecognitionPipeline?.then((c) => c.dispose()),
-    ]);
+  private disposing: Promise<void> | null = null;
+
+  /**
+   * Releases every loaded model. A repeated call returns the first one's
+   * promise: onnxruntime throws "Session already disposed" on a second release.
+   * The fields keep the released models, so a handler still running at
+   * shutdown fails on its session instead of loading the model again.
+   */
+  public dispose() {
+    return (this.disposing ??= this.releaseModels());
+  }
+
+  private async releaseModels() {
+    const results = await Promise.allSettled(
+      [
+        this.clipTextModel,
+        this.clipVisionModel,
+        this.sentimentAnalysisPipeline,
+        this.toxicAnalysisPipeline,
+        this.zeroShotClassificationPipeline,
+        this.automaticSpeechRecognitionPipeline,
+      ].map((model) => model?.then((m) => m.dispose())),
+    );
+    for (const result of results) {
+      if (result.status === 'rejected') console.error('Failed to dispose a model:', result.reason);
+    }
   }
 
   private getClipTokenizer() {

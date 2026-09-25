@@ -3,6 +3,7 @@ import dataSource from './dataSource/dataSource';
 import { checkVectorExtensions } from './dataSource/vectorExtensions';
 import { ConfigService } from './config/config.service';
 import { Bot } from './bot/bot.class';
+import { AIService } from './services/ai.service';
 import {
   StartCommand,
   ClassifyMessageCommand,
@@ -39,12 +40,14 @@ process.on('unhandledRejection', (reason) => {
   console.error('Unhandled rejection:', reason);
 });
 
-// Enable graceful stop
-process.once('SIGINT', async () => {
-  await bot.stop('SIGINT');
+// Enable graceful stop. AIService is a singleton shared by several commands,
+// so it is disposed once here rather than by each of them. Neither step
+// throws — Bot.stop() and dispose() log their own failures — so tracing is
+// always flushed.
+async function shutdown(signal: NodeJS.Signals) {
+  await bot.stop(signal);
+  await AIService.getInstance().dispose();
   await shutdownTracing();
-});
-process.once('SIGTERM', async () => {
-  await bot.stop('SIGTERM');
-  await shutdownTracing();
-});
+}
+process.once('SIGINT', () => shutdown('SIGINT'));
+process.once('SIGTERM', () => shutdown('SIGTERM'));

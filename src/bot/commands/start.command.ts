@@ -15,6 +15,4 @@ export class StartCommand extends Command {
       }
     });
   }
-
-  async dispose() {}
 }

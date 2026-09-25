@@ -14,5 +14,6 @@ export abstract class Command {
   abstract description: string | null;
 
   abstract handle(): void;
-  abstract dispose(): Promise<void>;
+  // Most commands hold nothing to release
+  async dispose(): Promise<void> {}
 }

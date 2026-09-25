@@ -159,6 +159,4 @@ export class IgnoreMediaCommand extends Command {
         : `✅ Відео додано до списку ігнорування (${embeddings.length} кадрів).`,
     );
   }
-
-  async dispose() {}
 }

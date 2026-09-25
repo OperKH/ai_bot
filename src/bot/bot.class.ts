@@ -146,9 +146,21 @@ export class Bot {
 
   async stop(reason?: string) {
     clearInterval(this.apiStatsTimer);
-    for (const command of this.commands) {
-      await command.dispose();
+    // Stop polling first, so no further batch is fetched while commands are
+    // disposed. The batch already fetched keeps running: Telegraf does not
+    // wait for it. Throws "Bot is not running!" when the signal comes before
+    // launch() got to polling — the commands still have to be disposed then.
+    try {
+      this.bot.stop(reason);
+    } catch (e) {
+      console.warn('Failed to stop the bot:', e);
     }
-    this.bot.stop(reason);
+    for (const command of this.commands) {
+      try {
+        await command.dispose();
+      } catch (e) {
+        console.error(`Failed to dispose ${command.constructor.name}:`, e);
+      }
+    }
   }
 }

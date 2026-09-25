@@ -3,6 +3,7 @@ import { AIService } from '../../services/ai.service.js';
 import { VideoService } from '../../services/video.service.js';
 import { IgnoredMedia, ChatPhotoMessage } from '../../entity/index.js';
 import { getLinkChatId } from '../../utils/telegram.utils.js';
+import { findIgnoredMedia } from '../../dataSource/vectorSearch.js';
 
 export class IgnoreMediaCommand extends Command {
   public command = 'ignoremedia';
@@ -14,11 +15,10 @@ export class IgnoreMediaCommand extends Command {
     this.bot.command(this.command, async (ctx) => {
       const messageId = ctx.message.message_id;
       const replyToMessage = ctx.message.reply_to_message;
+      const reply = (text: string) => ctx.reply(text, { reply_parameters: { message_id: messageId } });
 
       if (!replyToMessage) {
-        await ctx.reply('⚠️ Використовуй цю команду як reply на фото або відео.', {
-          reply_parameters: { message_id: messageId },
-        });
+        await reply('⚠️ Використовуй цю команду як reply на фото або відео.');
         return;
       }
 
@@ -26,21 +26,13 @@ export class IgnoreMediaCommand extends Command {
       const isVideo = 'video' in replyToMessage && replyToMessage.video;
 
       if (!isPhoto && !isVideo) {
-        await ctx.reply('⚠️ Ця команда працює тільки з фото або відео.', {
-          reply_parameters: { message_id: messageId },
-        });
+        await reply('⚠️ Ця команда працює тільки з фото або відео.');
         return;
       }
 
       try {
         const chatId = ctx.chat.id;
-        const ignoredMediaRepository = this.dataSource.getRepository(IgnoredMedia);
         const chatPhotoMessageRepository = this.dataSource.getRepository(ChatPhotoMessage);
-
-        type ExistingResult = {
-          id: string;
-          chatId: string;
-        };
 
         // Handle photo
         if (isPhoto) {
@@ -63,9 +55,7 @@ export class IgnoreMediaCommand extends Command {
             // Fallback: download and process photo
             const fileId = replyToMessage.photo.at(-1)?.file_id;
             if (!fileId) {
-              await ctx.reply('⚠️ Не вдалося отримати ID фото.', {
-                reply_parameters: { message_id: messageId },
-              });
+              await reply('⚠️ Не вдалося отримати ID фото.');
               return;
             }
 
@@ -73,42 +63,7 @@ export class IgnoreMediaCommand extends Command {
             embeddingString = await this.aiService.getEmbeddingStringByImageUrl(fileUrl);
           }
 
-          // Check if similar embedding already exists for this chat
-          await this.dataSource.query('SET vchordrq.probes = 10');
-          const existing = await ignoredMediaRepository
-            .createQueryBuilder('ignored')
-            .select('ignored.id', 'id')
-            .addSelect('ignored.chatId', 'chatId')
-            .where('embedding <<=>> sphere(:embedding::vector, :radius)')
-            .setParameters({
-              embedding: embeddingString,
-              radius: 1 - this.configService.get('MATCH_IMAGE_THRESHOLD'),
-            })
-            .getRawMany<ExistingResult>()
-            .then((results) => results.find((r) => r.chatId === String(chatId)));
-
-          if (existing) {
-            const linkChatId = getLinkChatId(chatId);
-            console.log(
-              'Media already in Ignore List',
-              `https://t.me/c/${linkChatId}/${replyToMessage.message_id}`,
-              `id: ${existing.id}`,
-            );
-            await ctx.reply('ℹ️ Це медіа вже є у списку ігнорування.', {
-              reply_parameters: { message_id: messageId },
-            });
-            return;
-          }
-
-          const ignoredMedia = new IgnoredMedia();
-          ignoredMedia.chatId = String(chatId);
-          ignoredMedia.messageId = String(replyToMessage.message_id);
-          ignoredMedia.embedding = embeddingString;
-          await ignoredMediaRepository.save(ignoredMedia);
-
-          await ctx.reply('✅ Фото додано до списку ігнорування.', {
-            reply_parameters: { message_id: messageId },
-          });
+          await this.addToIgnoreList(chatId, replyToMessage.message_id, 'photo', [embeddingString], reply);
         }
         // Handle video
         else if (isVideo) {
@@ -134,9 +89,7 @@ export class IgnoreMediaCommand extends Command {
             // Fallback: download and process video
             const fileId = replyToMessage.video.file_id;
             if (!fileId) {
-              await ctx.reply('⚠️ Не вдалося отримати ID відео.', {
-                reply_parameters: { message_id: messageId },
-              });
+              await reply('⚠️ Не вдалося отримати ID відео.');
               return;
             }
 
@@ -151,84 +104,60 @@ export class IgnoreMediaCommand extends Command {
             const frames = await this.videoService.extractFramesFromBuffer(videoBuffer);
 
             if (frames.length === 0) {
-              await ctx.reply('⚠️ Не вдалося витягнути кадри з відео.', {
-                reply_parameters: { message_id: messageId },
-              });
+              await reply('⚠️ Не вдалося витягнути кадри з відео.');
               return;
             }
 
-            // Process each frame and collect embeddings
-            frameEmbeddings = [];
-            for (const frame of frames) {
-              try {
-                const rawImage = await this.videoService.frameBufferToRawImage(frame.buffer);
-                const imageEmbedding = await this.aiService.getImageClipEmbedding(rawImage);
-                const imageEmbeddingString = JSON.stringify(imageEmbedding);
-                frameEmbeddings.push(imageEmbeddingString);
-              } catch (e) {
-                console.log(`Error processing frame ${frame.frameIndex}:`, e);
-              }
-            }
+            frameEmbeddings = (await this.aiService.getFrameEmbeddings(frames)).map(({ embedding }) => embedding);
 
             if (frameEmbeddings.length === 0) {
-              await ctx.reply('⚠️ Не вдалося обробити кадри відео.', {
-                reply_parameters: { message_id: messageId },
-              });
+              await reply('⚠️ Не вдалося обробити кадри відео.');
               return;
             }
           }
 
-          // Check if any frame already exists in ignored list
-          await this.dataSource.query('SET vchordrq.probes = 10');
-          for (const embeddingString of frameEmbeddings) {
-            const existing = await ignoredMediaRepository
-              .createQueryBuilder('ignored')
-              .select('ignored.id', 'id')
-              .addSelect('ignored.chatId', 'chatId')
-              .where('embedding <<=>> sphere(:embedding::vector, :radius)')
-              .setParameters({
-                embedding: embeddingString,
-                radius: 1 - this.configService.get('MATCH_IMAGE_THRESHOLD'),
-              })
-              .getRawMany<ExistingResult>()
-              .then((results) => results.find((r) => r.chatId === String(chatId)));
-
-            if (existing) {
-              const linkChatId = getLinkChatId(chatId);
-              console.log(
-                'Media already in Ignore List',
-                `https://t.me/c/${linkChatId}/${replyToMessage.message_id}`,
-                `id: ${existing.id}`,
-              );
-              await ctx.reply('ℹ️ Це відео вже є у списку ігнорування.', {
-                reply_parameters: { message_id: messageId },
-              });
-              return;
-            }
-          }
-
-          // Save all frame embeddings to ignored list
-          const ignoredMediaEntities = frameEmbeddings.map((embedding) => {
-            const ignoredMedia = new IgnoredMedia();
-            ignoredMedia.chatId = String(chatId);
-            ignoredMedia.messageId = String(replyToMessage.message_id);
-            ignoredMedia.embedding = embedding;
-            return ignoredMedia;
-          });
-
-          await ignoredMediaRepository.save(ignoredMediaEntities);
-
-          await ctx.reply(`✅ Відео додано до списку ігнорування (${ignoredMediaEntities.length} кадрів).`, {
-            reply_parameters: { message_id: messageId },
-          });
+          await this.addToIgnoreList(chatId, replyToMessage.message_id, 'video', frameEmbeddings, reply);
         }
       } catch (e) {
         console.log(e);
-        await ctx.reply('📛 Сталася помилка при додаванні медіа до списку ігнорування.', {
-          reply_parameters: { message_id: messageId },
-        });
+        await reply('📛 Сталася помилка при додаванні медіа до списку ігнорування.');
       }
     });
+  }
+
+  /** Adds a photo or a video (one embedding per frame) to the chat's ignore list, unless it is there already */
+  private async addToIgnoreList(
+    chatId: number,
+    messageId: number,
+    mediaType: 'photo' | 'video',
+    embeddings: string[],
+    reply: (text: string) => Promise<unknown>,
+  ) {
+    const threshold = this.configService.get('MATCH_IMAGE_THRESHOLD');
+    const existing = await findIgnoredMedia(this.dataSource, chatId, embeddings, threshold);
+    if (existing) {
+      console.log(
+        'Media already in Ignore List',
+        `https://t.me/c/${getLinkChatId(chatId)}/${messageId}`,
+        `id: ${existing.id}`,
+      );
+      await reply(
+        mediaType === 'photo' ? 'ℹ️ Це медіа вже є у списку ігнорування.' : 'ℹ️ Це відео вже є у списку ігнорування.',
+      );
+      return;
+    }
+
+    const repository = this.dataSource.getRepository(IgnoredMedia);
+    await repository.save(
+      embeddings.map((embedding) =>
+        repository.create({ chatId: String(chatId), messageId: String(messageId), embedding }),
+      ),
+    );
+    await reply(
+      mediaType === 'photo'
+        ? '✅ Фото додано до списку ігнорування.'
+        : `✅ Відео додано до списку ігнорування (${embeddings.length} кадрів).`,
+    );
   }
 
   async dispose() {}

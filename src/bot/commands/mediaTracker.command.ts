@@ -1,21 +1,28 @@
-import { Context, NarrowedContext, Types } from 'telegraf';
-import { CallbackQuery, InlineKeyboardMarkup, Message, Update } from 'telegraf/types';
+import { setTimeout as sleep } from 'node:timers/promises';
+import { Context, NarrowedContext } from 'telegraf';
+import { CallbackQuery, Message, Update } from 'telegraf/types';
 import { message } from 'telegraf/filters';
 import { TelegramClient, Api, sessions, errors } from 'telegram';
+import { FindOptionsWhere, LessThan } from 'typeorm';
 import { Command } from './command.class';
 import { IBotContext } from '../context/context.interface';
-import { AIService } from '../../services/ai.service';
+import { AIService, FrameEmbedding } from '../../services/ai.service';
 import { VideoService } from '../../services/video.service';
-import { ChatPhotoMessage, ChatState, IgnoredMedia } from '../../entity/index';
+import { ChatPhotoMessage, ChatState, MediaSearch } from '../../entity/index';
+import { findIgnoredMedia, findSimilarMedia } from '../../dataSource/vectorSearch';
 import { getLinkChatId } from '../../utils/telegram.utils.js';
+import { MatchReplyPort, parseMoreCallback, replyWithDuplicates, showSearchPage } from './mediaMatchReplies';
 
 /** Media messages added during an import so far */
 type ImportCounters = { photos: number; videos: number };
 
-/** An import is started either by the command or by the retry button on a failed one */
-type ImportContext =
-  | (NarrowedContext<IBotContext, Update.MessageUpdate<Message>> & Types.CommandContextExtn)
-  | Context<Update.CallbackQueryUpdate<CallbackQuery>>;
+type MessageContext = NarrowedContext<IBotContext, Update.MessageUpdate<Message>>;
+
+/**
+ * A context that can reply in a chat: a message, or a button press under one.
+ * Imports and searches are started either way, by a command or by a button.
+ */
+type ReplyContext = MessageContext | Context<Update.CallbackQueryUpdate<CallbackQuery>>;
 
 /** How often the running tally is logged, in added messages */
 const IMPORT_TALLY_EVERY = 100;
@@ -23,19 +30,30 @@ const IMPORT_TALLY_EVERY = 100;
 /** Callback data of the keyboard offered when an import breaks: `himp-r`, `himp-r-30`, `himp-r-all`, `himp-c` */
 const IMPORT_ACTION_RE = /^himp-(r|c)(?:-(\d+|all))?$/;
 
+/** How long a "Ще" button keeps working; older searches are removed, and their buttons with them */
+const SEARCH_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+
+/** How often expired searches are looked for */
+const SEARCH_CLEANUP_EVERY_MS = 60 * 60 * 1000;
+
 export class MediaTrackerCommand extends Command {
   public command = 'searchmedia';
   public description = '[text] 🖼 Пошук медіа за описом';
   private aiService = AIService.getInstance();
   private videoService = VideoService.getInstance();
   private tgClient: TelegramClient | null = null;
-  private similarFoundVariants = ['ось тут', 'ще тут', 'і ось', 'навіть це', 'і оце щось схоже'];
   private isMediaImporting = false;
-  private chatCountCache: number | null = null;
-  private chatCountCacheTime: number = 0;
-  private readonly CHAT_COUNT_CACHE_TTL = 20 * 60 * 1000; // 20 minutes
+  private searchCleanupTimer: NodeJS.Timeout | undefined;
 
   handle(): void {
+    // The first pass also catches up on what expired while the bot was down
+    // eslint-disable-next-line @typescript-eslint/no-floating-promises
+    this.removeExpiredSearches();
+    this.searchCleanupTimer = setInterval(() => {
+      // eslint-disable-next-line @typescript-eslint/no-floating-promises
+      this.removeExpiredSearches();
+    }, SEARCH_CLEANUP_EVERY_MS).unref();
+
     this.bot.on(message('photo'), async (ctx, next) => {
       const fileId = ctx.message.photo.at(-1)?.file_id;
       if (fileId) {
@@ -60,28 +78,29 @@ export class MediaTrackerCommand extends Command {
     });
     this.bot.command(this.command, async (ctx) => {
       if (ctx.payload) {
-        await this.searchAndReplyPaginated(ctx, ctx.chat.id, ctx.message.message_id, ctx.payload, 0);
+        const search = await this.createSearch(ctx.chat.id, ctx.payload);
+        await this.searchAndReplyPaginated(ctx, ctx.message.message_id, search);
       } else {
         await ctx.reply(`ℹ️ Додай пошуковий запит після команди, наприклад: /${this.command} ігрова консоль`, {
           reply_parameters: { message_id: ctx.message.message_id },
         });
       }
     });
-    this.bot.action(/^islm-(.+)$/, async (ctx) => {
-      const payload = JSON.parse(ctx.match[1]) as unknown;
-      if (
-        typeof payload === 'object' &&
-        payload !== null &&
-        't' in payload &&
-        'o' in payload &&
-        typeof payload.t === 'string' &&
-        typeof payload.o === 'number'
-      ) {
-        const { t, o } = payload;
-        const chat = await ctx.getChat();
-        await this.searchAndReplyPaginated(ctx, chat.id, undefined, t, o);
+    // Any `islm-` button: the old ones carry JSON and are told to search again
+    this.bot.action(/^islm-/, async (ctx) => {
+      const searchId = parseMoreCallback(ctx.match.input);
+      const search =
+        searchId === null || !ctx.chat
+          ? null
+          : await this.dataSource.getRepository(MediaSearch).findOneBy({ id: searchId, chatId: String(ctx.chat.id) });
+      if (!search) {
+        await ctx.answerCbQuery(`🙈 Цей пошук застарів, повтори /${this.command}`);
         await ctx.editMessageReplyMarkup({ inline_keyboard: [] });
+        return;
       }
+      await ctx.answerCbQuery();
+      await this.searchAndReplyPaginated(ctx, undefined, search);
+      await ctx.editMessageReplyMarkup({ inline_keyboard: [] });
     });
     this.bot.command('starthistoryimport', async (ctx) => {
       // Run in background and release the update slot
@@ -108,349 +127,179 @@ export class MediaTrackerCommand extends Command {
     });
   }
 
-  private async photoMessageHandler(ctx: NarrowedContext<IBotContext, Update.MessageUpdate<Message>>, fileId: string) {
+  private async photoMessageHandler(ctx: MessageContext, fileId: string) {
     if (this.isMediaImporting) return;
 
-    const chatId = ctx.chat.id;
-    const messageId = ctx.message.message_id;
     const fileUrl = await this.bot.telegram.getFileLink(fileId);
-    const imageEmbeddingString = await this.aiService.getEmbeddingStringByImageUrl(fileUrl);
-
-    const chatPhotoMessageRepository = this.dataSource.getRepository(ChatPhotoMessage);
-    const ignoredMediaRepository = this.dataSource.getRepository(IgnoredMedia);
-
-    try {
-      // Check if media is in ignored list
-      type IgnoredResult = {
-        id: string;
-        chatId: string;
-      };
-      await this.dataSource.query('SET vchordrq.probes = 10');
-      const isIgnored = await ignoredMediaRepository
-        .createQueryBuilder('ignored')
-        .select('ignored.id')
-        .addSelect('ignored.chatId', 'chatId')
-        .where('embedding <<=>> sphere(:embedding::vector, :radius)')
-        .setParameters({
-          embedding: imageEmbeddingString,
-          radius: 1 - this.configService.get('MATCH_IMAGE_THRESHOLD'),
-        })
-        .getRawMany<IgnoredResult>()
-        .then((results) => results.some((r) => r.chatId === String(chatId)));
-
-      if (isIgnored) {
-        const linkChatId = getLinkChatId(chatId);
-        console.log('mediaIgnored', `https://t.me/c/${linkChatId}/${messageId}`);
-      } else {
-        // DB similarity search
-        type Messages = {
-          messageId: string;
-          similarity: number;
-        };
-        const limit = this.configService.get('MATCH_IMAGE_COUNT');
-        const multiplier = await this.getQueryMultiplier();
-        const t1 = performance.now();
-        const messages = await chatPhotoMessageRepository
-          .createQueryBuilder('msg')
-          .select('msg.messageId', 'messageId')
-          .addSelect('msg.chatId', 'chatId')
-          .addSelect('1 - (embedding <=> :embedding)', 'similarity')
-          .where('embedding <<=>> sphere(:embedding::vector, :radius)')
-          .orderBy('similarity', 'DESC')
-          .limit(limit * multiplier)
-          .setParameters({
-            embedding: imageEmbeddingString,
-            radius: 1 - this.configService.get('MATCH_IMAGE_THRESHOLD'),
-          })
-          .getRawMany<Messages & { chatId: string }>()
-          .then((messages) => messages.filter((m) => m.chatId === String(chatId)).slice(0, limit));
-        const t2 = performance.now();
-        console.log(`DB query time for message: ${Math.round(t2 - t1)} ms`);
-        // When similar
-        if (messages.length > 0) {
-          await ctx.reply('🕵️‍♀️ Здається, я це вже десь бачив...', {
-            reply_parameters: { message_id: messageId },
-          });
-          let replyMessageCount = 0;
-          for (const { messageId, similarity } of messages) {
-            const variantNumber = replyMessageCount++ % this.similarFoundVariants.length;
-            await ctx.reply(`${this.similarFoundVariants[variantNumber]} (${Math.round(similarity * 1e4) / 1e2}%)`, {
-              reply_parameters: { message_id: Number(messageId), allow_sending_without_reply: true },
-              disable_notification: true,
-            });
-            // Wait 1 second before send next message
-            await new Promise((r) => setTimeout(r, 1000));
-          }
-        }
-      }
-    } catch (e) {
-      console.log(e);
-    }
-
-    try {
-      // Save to DB
-      const chatPhotoMessage = new ChatPhotoMessage();
-      chatPhotoMessage.chatId = String(chatId);
-      chatPhotoMessage.messageId = String(messageId);
-      chatPhotoMessage.mediaType = 'photo';
-      chatPhotoMessage.frameIndex = 0;
-      chatPhotoMessage.embedding = imageEmbeddingString;
-      await chatPhotoMessageRepository.save(chatPhotoMessage);
-    } catch (e) {
-      console.log(e);
-    }
+    const embedding = await this.aiService.getEmbeddingStringByImageUrl(fileUrl);
+    await this.trackMedia(ctx, 'photo', [{ frameIndex: 0, embedding }]);
   }
 
-  private async videoMessageHandler(ctx: NarrowedContext<IBotContext, Update.MessageUpdate<Message>>, fileId: string) {
+  private async videoMessageHandler(ctx: MessageContext, fileId: string) {
     if (this.isMediaImporting) return;
 
-    const chatId = ctx.chat.id;
-    const messageId = ctx.message.message_id;
-    const fileUrl = await this.bot.telegram.getFileLink(fileId);
+    const frameEmbeddings = await this.embedVideo(fileId);
+    if (frameEmbeddings.length === 0) {
+      console.log('No frame embeddings for the video, skipping');
+      return;
+    }
+    await this.trackMedia(ctx, 'video', frameEmbeddings);
+  }
 
-    // Download video file
+  /**
+   * Downloads a video and embeds its frames. A call of its own, so the video and
+   * its frames can be collected before the replies go out: a suspended async
+   * function keeps all its locals alive, used or not.
+   */
+  private async embedVideo(fileId: string): Promise<FrameEmbedding[]> {
+    const fileUrl = await this.bot.telegram.getFileLink(fileId);
     const videoBuffer = await fetch(fileUrl.href)
       .then((res) => res.arrayBuffer())
       .then((ab) => Buffer.from(ab));
-
-    // Extract frames from video
     const frames = await this.videoService.extractFramesFromBuffer(videoBuffer);
+    return this.aiService.getFrameEmbeddings(frames);
+  }
 
-    if (frames.length === 0) {
-      console.log('No frames extracted from video, skipping');
-      return;
-    }
-
-    const chatPhotoMessageRepository = this.dataSource.getRepository(ChatPhotoMessage);
-    const ignoredMediaRepository = this.dataSource.getRepository(IgnoredMedia);
-
-    // Process each frame
-    const frameEmbeddings: Array<{ frameIndex: number; embedding: string }> = [];
-    for (const frame of frames) {
-      try {
-        const rawImage = await this.videoService.frameBufferToRawImage(frame.buffer);
-        const imageEmbedding = await this.aiService.getImageClipEmbedding(rawImage);
-        const imageEmbeddingString = JSON.stringify(imageEmbedding);
-        frameEmbeddings.push({
-          frameIndex: frame.frameIndex,
-          embedding: imageEmbeddingString,
-        });
-      } catch (e) {
-        console.log(`Error processing frame ${frame.frameIndex}:`, e);
-      }
-    }
-
-    if (frameEmbeddings.length === 0) {
-      console.log('No frame embeddings generated, skipping');
-      return;
-    }
+  /**
+   * What a photo and a video share once their embeddings are in hand (a photo has
+   * one, a video one per frame): unless the media is on the ignore list, point at
+   * the earlier messages it repeats; then store it.
+   */
+  private async trackMedia(ctx: MessageContext, mediaType: 'photo' | 'video', frames: FrameEmbedding[]) {
+    const chatId = ctx.chat.id;
+    const messageId = ctx.message.message_id;
+    const embeddings = frames.map(({ embedding }) => embedding);
+    const threshold = this.configService.get('MATCH_IMAGE_THRESHOLD');
 
     try {
-      // Check if any frame is in ignored list
-      await this.dataSource.query('SET vchordrq.probes = 10');
-      let isIgnored = false;
-      for (const { embedding: imageEmbeddingString } of frameEmbeddings) {
-        type IgnoredResult = {
-          id: string;
-          chatId: string;
-        };
-        const ignored = await ignoredMediaRepository
-          .createQueryBuilder('ignored')
-          .select('ignored.id')
-          .addSelect('ignored.chatId', 'chatId')
-          .where('embedding <<=>> sphere(:embedding::vector, :radius)')
-          .setParameters({
-            embedding: imageEmbeddingString,
-            radius: 1 - this.configService.get('MATCH_IMAGE_THRESHOLD'),
-          })
-          .getRawMany<IgnoredResult>()
-          .then((results) => results.some((r) => r.chatId === String(chatId)));
-
-        if (ignored) {
-          isIgnored = true;
-          break;
-        }
-      }
-
-      if (isIgnored) {
-        const linkChatId = getLinkChatId(chatId);
-        console.log('mediaIgnored', `https://t.me/c/${linkChatId}/${messageId}`);
+      if (await findIgnoredMedia(this.dataSource, chatId, embeddings, threshold)) {
+        console.log('mediaIgnored', `https://t.me/c/${getLinkChatId(chatId)}/${messageId}`);
       } else {
-        // DB similarity search - check all frames
-        type Messages = {
-          messageId: string;
-          chatId: string;
-          similarity: number;
-        };
+        const matches = await findSimilarMedia(this.dataSource, { chatId, embeddings, threshold });
         const limit = this.configService.get('MATCH_IMAGE_COUNT');
-        const multiplier = await this.getQueryMultiplier();
-        const t1 = performance.now();
-
-        // Collect similar messages from all frames
-        const allSimilarMessages = new Map<string, Messages>();
-
-        for (const { embedding: imageEmbeddingString } of frameEmbeddings) {
-          const messages = await chatPhotoMessageRepository
-            .createQueryBuilder('msg')
-            .select('msg.messageId', 'messageId')
-            .addSelect('msg.chatId', 'chatId')
-            .addSelect('1 - (embedding <=> :embedding)', 'similarity')
-            .where('embedding <<=>> sphere(:embedding::vector, :radius)')
-            .orderBy('similarity', 'DESC')
-            .limit(limit * multiplier)
-            .setParameters({
-              embedding: imageEmbeddingString,
-              radius: 1 - this.configService.get('MATCH_IMAGE_THRESHOLD'),
-            })
-            .getRawMany<Messages>()
-            .then((messages) => messages.filter((m) => m.chatId === String(chatId)));
-
-          // Keep the highest similarity for each message
-          for (const msg of messages) {
-            const existing = allSimilarMessages.get(msg.messageId);
-            if (!existing || msg.similarity > existing.similarity) {
-              allSimilarMessages.set(msg.messageId, msg);
-            }
-          }
-        }
-
-        // Sort by similarity and take top N
-        const topMessages = Array.from(allSimilarMessages.values())
-          .sort((a, b) => b.similarity - a.similarity)
-          .slice(0, limit);
-
-        const t2 = performance.now();
-        console.log(`DB query time for video: ${Math.round(t2 - t1)} ms`);
-
-        // When similar
-        if (topMessages.length > 0) {
-          await ctx.reply('🕵️‍♀️ Здається, я це вже десь бачив...', {
-            reply_parameters: { message_id: messageId },
-          });
-          let replyMessageCount = 0;
-          for (const { messageId, similarity } of topMessages) {
-            const variantNumber = replyMessageCount++ % this.similarFoundVariants.length;
-            await ctx.reply(`${this.similarFoundVariants[variantNumber]} (${Math.round(similarity * 1e4) / 1e2}%)`, {
-              reply_parameters: { message_id: Number(messageId), allow_sending_without_reply: true },
-              disable_notification: true,
-            });
-            // Wait 1 second before send next message
-            await new Promise((r) => setTimeout(r, 1000));
-          }
-        }
+        await replyWithDuplicates(this.matchReplyPort(ctx, chatId), messageId, matches, limit);
       }
     } catch (e) {
       console.log(e);
     }
 
     try {
-      // Save all frames to DB
-      const chatPhotoMessages = frameEmbeddings.map(({ frameIndex, embedding }) => {
-        const chatPhotoMessage = new ChatPhotoMessage();
-        chatPhotoMessage.chatId = String(chatId);
-        chatPhotoMessage.messageId = String(messageId);
-        chatPhotoMessage.mediaType = 'video';
-        chatPhotoMessage.frameIndex = frameIndex;
-        chatPhotoMessage.embedding = embedding;
-        return chatPhotoMessage;
-      });
-      await chatPhotoMessageRepository.save(chatPhotoMessages);
+      const repository = this.dataSource.getRepository(ChatPhotoMessage);
+      await repository.save(
+        frames.map(({ frameIndex, embedding }) =>
+          repository.create({ chatId: String(chatId), messageId: String(messageId), mediaType, frameIndex, embedding }),
+        ),
+      );
     } catch (e) {
       console.log(e);
     }
   }
 
-  private async searchAndReplyPaginated(
-    ctx:
-      NarrowedContext<IBotContext, Update.MessageUpdate<Message>> | Context<Update.CallbackQueryUpdate<CallbackQuery>>,
-    chatId: number,
-    firstMessageId: number | undefined,
-    text: string,
-    offset: number,
-  ) {
-    const textEmbedding = await this.aiService.getTextClipEmbedding(text);
-    const textEmbeddingString = JSON.stringify(textEmbedding);
-    type Messages = {
-      messageId: string;
-      chatId: string;
-      similarity: number;
+  /**
+   * Stores a new `/searchmedia` query with its embedding. The same query asked
+   * again in the chat starts over and replaces the earlier search, so its "Ще"
+   * does not carry on beside the new one. The embedding is computed afresh: an
+   * earlier one may come from untranslated text, if the translator was down.
+   */
+  private async createSearch(chatId: number, text: string): Promise<MediaSearch> {
+    const embedding = await this.aiService.getTextClipEmbedding(text);
+    await this.removeSearches({ chatId: String(chatId), text });
+    const repository = this.dataSource.getRepository(MediaSearch);
+    return repository.save(repository.create({ chatId: String(chatId), text, embedding }));
+  }
+
+  /** Searches older than a "Ще" button's lifetime go, and so do their buttons */
+  private async removeExpiredSearches() {
+    try {
+      const removed = await this.removeSearches({ createdAt: LessThan(new Date(Date.now() - SEARCH_TTL_MS)) });
+      if (removed > 0) console.log(`Removed ${removed} expired searches`);
+    } catch (e) {
+      console.error('Could not remove expired searches:', e);
+    }
+  }
+
+  /**
+   * Deletes stored searches, taking their "Ще" buttons off first so nobody presses
+   * them in vain; returns how many went
+   */
+  private async removeSearches(where: FindOptionsWhere<MediaSearch>): Promise<number> {
+    const repository = this.dataSource.getRepository(MediaSearch);
+    const searches = await repository.find({ select: { id: true, chatId: true, buttonMessageId: true }, where });
+    for (const { id, chatId, buttonMessageId } of searches) {
+      if (buttonMessageId === null) continue;
+      try {
+        await this.bot.telegram.editMessageReplyMarkup(Number(chatId), Number(buttonMessageId), undefined, {
+          inline_keyboard: [],
+        });
+      } catch (e) {
+        // The reply is gone or the bot left the chat: the row goes all the same,
+        // and a button that survived answers that the search has expired
+        console.log(`Could not take the button off search ${id}:`, e);
+      }
+    }
+    if (searches.length > 0) await repository.delete(searches.map(({ id }) => id));
+    return searches.length;
+  }
+
+  /** Shows the next page of a search and stores where it stopped (see `showSearchPage`) */
+  private async searchAndReplyPaginated(ctx: ReplyContext, firstMessageId: number | undefined, search: MediaSearch) {
+    const chatId = Number(search.chatId);
+    const embeddingString = JSON.stringify(search.embedding);
+    const { cursor, buttonMessageId } = await showSearchPage(this.matchReplyPort(ctx, chatId), {
+      text: search.text,
+      cursor:
+        search.cursorMessageId === null || search.cursorSimilarity === null
+          ? null
+          : { messageId: search.cursorMessageId, similarity: search.cursorSimilarity },
+      firstMessageId,
+      limit: this.configService.get('MATCH_IMAGE_COUNT'),
+      searchId: search.id,
+      find: (after, count) =>
+        findSimilarMedia(this.dataSource, {
+          chatId,
+          embeddings: [embeddingString],
+          threshold: this.configService.get('MATCH_TEXT_THRESHOLD'),
+          after,
+          limit: count,
+        }),
+    });
+    await this.dataSource.getRepository(MediaSearch).update(search.id, {
+      cursorSimilarity: cursor?.similarity ?? null,
+      cursorMessageId: cursor?.messageId ?? null,
+      buttonMessageId: buttonMessageId === null ? null : String(buttonMessageId),
+    });
+  }
+
+  /** Telegram and the database behind the replies of `mediaMatchReplies` */
+  private matchReplyPort(ctx: ReplyContext, chatId: number): MatchReplyPort {
+    return {
+      send: async (text, replyToId) => {
+        const sent = await ctx.reply(
+          text,
+          replyToId === undefined ? undefined : { reply_parameters: { message_id: replyToId } },
+        );
+        return sent.message_id;
+      },
+      replyToEarlier: async (replyToId, text, moreCallbackData) => {
+        const reply = await ctx.reply(text, {
+          reply_parameters: { message_id: replyToId, allow_sending_without_reply: true },
+          disable_notification: true,
+          reply_markup:
+            moreCallbackData === undefined
+              ? undefined
+              : { inline_keyboard: [[{ text: 'Ще', callback_data: moreCallbackData }]] },
+        });
+        return { messageId: reply.message_id, attached: Boolean(reply.reply_to_message) };
+      },
+      delete: async (messageId) => {
+        await ctx.deleteMessage(messageId);
+      },
+      forget: async (messageId) => {
+        await this.dataSource.getRepository(ChatPhotoMessage).delete({ chatId: String(chatId), messageId });
+        console.log('mediaDeleted', `https://t.me/c/${getLinkChatId(chatId)}/${messageId}`);
+      },
+      pause: () => sleep(1000),
     };
-    const chatPhotoMessageRepository = this.dataSource.getRepository(ChatPhotoMessage);
-    const limit = this.configService.get('MATCH_IMAGE_COUNT');
-    const multiplier = await this.getQueryMultiplier();
-    const t1 = performance.now();
-    await this.dataSource.query('SET vchordrq.probes = 10');
-    const allMessages = await chatPhotoMessageRepository
-      .createQueryBuilder('msg')
-      .select('msg.messageId', 'messageId')
-      .addSelect('msg.chatId', 'chatId')
-      .addSelect('1 - (embedding <=> :embedding::vector)', 'similarity')
-      .where('embedding <<=>> sphere(:embedding::vector, :radius)')
-      .orderBy('similarity', 'DESC')
-      .limit((limit + offset * multiplier) * multiplier)
-      .setParameters({
-        embedding: textEmbeddingString,
-        radius: 1 - this.configService.get('MATCH_TEXT_THRESHOLD'),
-      })
-      .getRawMany<Messages>();
-
-    // Group by messageId and keep the highest similarity
-    const messageMap = new Map<string, Messages>();
-    for (const msg of allMessages) {
-      if (msg.chatId !== String(chatId)) continue;
-      const existing = messageMap.get(msg.messageId);
-      if (!existing || msg.similarity > existing.similarity) {
-        messageMap.set(msg.messageId, msg);
-      }
-    }
-
-    // Sort by similarity and apply pagination
-    const messages = Array.from(messageMap.values())
-      .sort((a, b) => b.similarity - a.similarity)
-      .slice(offset, limit + offset);
-
-    const t2 = performance.now();
-    console.log(`DB query time for search: ${Math.round(t2 - t1)} ms`);
-    // When similar
-    if (messages.length > 0) {
-      const hasMore = messages.length === limit;
-      if (firstMessageId) {
-        await ctx.reply('🔎 Ось, що мені вдалось знайти:', {
-          reply_parameters: { message_id: firstMessageId },
-        });
-      }
-      for (const message of messages) {
-        const { messageId, similarity } = message;
-        const isLast = message === messages.at(-1);
-        let reply_markup: InlineKeyboardMarkup | undefined;
-        if (isLast && hasMore) {
-          const payload = JSON.stringify({ t: text, o: offset + limit });
-          reply_markup = { inline_keyboard: [[{ text: 'Ще', callback_data: `islm-${payload}` }]] };
-        }
-        try {
-          await ctx.reply(`${text} (${similarity.toPrecision(4)})`, {
-            reply_parameters: { message_id: Number(messageId), allow_sending_without_reply: true },
-            disable_notification: true,
-            reply_markup,
-          });
-        } catch (e) {
-          console.log(`messageId: ${messageId}`, e);
-        }
-        // Wait 1 second before send next message
-        await new Promise((r) => setTimeout(r, 1000));
-      }
-      if (!hasMore) {
-        await ctx.reply('💃 Це все!');
-      }
-    } else {
-      if (firstMessageId) {
-        await ctx.reply('🤷‍♂️ Нічого нема.', {
-          reply_parameters: { message_id: firstMessageId },
-        });
-      } else {
-        await ctx.reply('💃 Це все!');
-      }
-    }
   }
 
   /**
@@ -460,7 +309,7 @@ export class MediaTrackerCommand extends Command {
    * throw in turn, and that one has nowhere to go.
    */
   private runImportInBackground(
-    ctx: ImportContext,
+    ctx: ReplyContext,
     chatId: number,
     messageId: number,
     importWindow: number | 'all' | undefined,
@@ -475,7 +324,7 @@ export class MediaTrackerCommand extends Command {
    * @param importWindow - The `/starthistoryimport` argument, carried as-is through a retry
    */
   private async startHistoryImport(
-    ctx: ImportContext,
+    ctx: ReplyContext,
     chatId: number,
     messageId: number,
     importWindow: number | 'all' | undefined,
@@ -666,25 +515,15 @@ export class MediaTrackerCommand extends Command {
       return [];
     }
 
-    // Process each frame
-    const chatPhotoMessages: ChatPhotoMessage[] = [];
-    for (const frame of frames) {
-      try {
-        const rawImage = await this.videoService.frameBufferToRawImage(frame.buffer);
-        const imageEmbedding = await this.aiService.getImageClipEmbedding(rawImage);
-        const imageEmbeddingString = JSON.stringify(imageEmbedding);
-
-        const chatPhotoMessage = new ChatPhotoMessage();
-        chatPhotoMessage.chatId = String(chatId);
-        chatPhotoMessage.messageId = String(messageId);
-        chatPhotoMessage.mediaType = 'video';
-        chatPhotoMessage.frameIndex = frame.frameIndex;
-        chatPhotoMessage.embedding = imageEmbeddingString;
-        chatPhotoMessages.push(chatPhotoMessage);
-      } catch (e) {
-        console.log(`Error processing frame ${frame.frameIndex} of video ${messageId}:`, e);
-      }
-    }
+    const chatPhotoMessages = (await this.aiService.getFrameEmbeddings(frames)).map(({ frameIndex, embedding }) => {
+      const chatPhotoMessage = new ChatPhotoMessage();
+      chatPhotoMessage.chatId = String(chatId);
+      chatPhotoMessage.messageId = String(messageId);
+      chatPhotoMessage.mediaType = 'video';
+      chatPhotoMessage.frameIndex = frameIndex;
+      chatPhotoMessage.embedding = embedding;
+      return chatPhotoMessage;
+    });
 
     const t2 = performance.now();
     console.log(
@@ -729,27 +568,6 @@ export class MediaTrackerCommand extends Command {
     );
 
     return chatPhotoMessage;
-  }
-
-  private async getQueryMultiplier(): Promise<number> {
-    const now = Date.now();
-
-    if (this.chatCountCache !== null && now - this.chatCountCacheTime < this.CHAT_COUNT_CACHE_TTL) {
-      return this.chatCountCache;
-    }
-
-    const result = await this.dataSource
-      .getRepository(ChatPhotoMessage)
-      .createQueryBuilder('msg')
-      .select('COUNT(DISTINCT msg.chatId)', 'count')
-      .getRawOne<{ count: string }>();
-
-    const chatCount = parseInt(result?.count || '1', 10);
-
-    this.chatCountCache = chatCount === 1 ? 1 : Math.min(chatCount * 5, 50);
-    this.chatCountCacheTime = now;
-
-    return this.chatCountCache;
   }
 
   /**
@@ -923,6 +741,7 @@ export class MediaTrackerCommand extends Command {
   }
 
   async dispose() {
+    clearInterval(this.searchCleanupTimer);
     await this.aiService.dispose();
   }
 }

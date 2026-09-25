@@ -2,8 +2,6 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ffmpeg from 'fluent-ffmpeg';
-import { RawImage } from '@huggingface/transformers';
-import sharp from 'sharp';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -119,14 +117,5 @@ export class VideoService {
         /* ignore */
       });
     }
-  }
-
-  /**
-   * Convert frame buffer to RawImage for CLIP processing
-   */
-  public async frameBufferToRawImage(buffer: Buffer): Promise<RawImage> {
-    const img = sharp(buffer);
-    const { data, info } = await img.raw().toBuffer({ resolveWithObject: true });
-    return new RawImage(new Uint8ClampedArray(data), info.width, info.height, info.channels);
   }
 }

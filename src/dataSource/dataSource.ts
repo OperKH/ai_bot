@@ -17,6 +17,10 @@ const dataSource = dataSourceFactory({
   logging: false,
   connectTimeoutMS: 10_000, // 10 seconds
   migrationsRun: true,
+  // Each migration gets its own transaction, so one can opt out (VACUUM cannot
+  // run inside a transaction). In the default `all` mode TypeORM rejects any
+  // migration that sets `transaction` at all.
+  migrationsTransactionMode: 'each',
   entities: [`${__dirname}/../entity/*.{js,ts}`],
   subscribers: [],
   migrations: [`${__dirname}/../migrations/*.{js,ts}`],

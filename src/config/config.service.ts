@@ -1,5 +1,10 @@
-import 'dotenv/config';
+import { config as loadEnvFiles } from 'dotenv';
 import type { ReasoningEffort } from 'openai/resources/shared';
+
+// `.env.local` (gitignored) holds what differs on this machine, such as the port
+// of a local database, over the shared `.env`. The first file to set a variable
+// wins, and a variable already set in the environment wins over both files.
+loadEnvFiles({ path: ['.env.local', '.env'], quiet: true });
 
 const REASONING_EFFORTS: readonly ReasoningEffort[] = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
 

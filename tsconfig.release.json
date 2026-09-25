@@ -4,5 +4,6 @@
     "sourceMap": false,
     "removeComments": true,
     "tsBuildInfoFile": "dist/tsconfig.release.tsbuildinfo"
-  }
+  },
+  "exclude": ["src/**/*.test.ts"]
 }

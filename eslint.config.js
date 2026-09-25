@@ -16,7 +16,15 @@ export default defineConfig(
       '@typescript-eslint': tseslint.plugin,
     },
     rules: {
-      '@typescript-eslint/no-floating-promises': 'error',
+      '@typescript-eslint/no-floating-promises': [
+        'error',
+        {
+          // node:test registers suites and tests through calls that return promises it awaits itself
+          allowForKnownSafeCalls: [
+            { from: 'package', package: 'node:test', name: ['describe', 'it', 'test', 'suite'] },
+          ],
+        },
+      ],
       '@typescript-eslint/no-unused-vars': ['error', { caughtErrors: 'none' }],
     },
     languageOptions: {

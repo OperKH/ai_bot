@@ -1,5 +1,6 @@
 import { shutdownTracing } from './tracing';
 import dataSource from './dataSource/dataSource';
+import { checkVectorExtensions } from './dataSource/vectorExtensions';
 import { ConfigService } from './config/config.service';
 import { Bot } from './bot/bot.class';
 import {
@@ -14,6 +15,9 @@ import {
 const configService = ConfigService.getInstance();
 
 await dataSource.initialize();
+// Only logs, so the bot does not wait for it
+// eslint-disable-next-line @typescript-eslint/no-floating-promises
+checkVectorExtensions(dataSource);
 
 const bot = new Bot(configService, dataSource);
 

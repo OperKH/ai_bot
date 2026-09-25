@@ -7,3 +7,5 @@ eslint.config.js
 *.md
 
 .*
+
+**/*.test.ts

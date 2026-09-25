@@ -13,7 +13,7 @@
     "build": "tsc && tsc-alias",
     "build:release": "npm run clean && tsc -p tsconfig.release.json && tsc-alias -p tsconfig.release.json",
     "tg:session": "tsc && tsc-alias && node dist/scripts/stringSession.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "node --import tsx --test 'src/**/*.test.ts'"
   },
   "dependencies": {
     "@huggingface/transformers": "^4.2.0",

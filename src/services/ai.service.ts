@@ -17,6 +17,7 @@ import {
   ZeroShotClassificationPipeline,
 } from '@huggingface/transformers';
 import { retry } from '../utils/retry.utils';
+import type { VideoFrame } from './video.service';
 env.cacheDir = './data/models';
 
 // Transformers.js v4 moved these out of the package barrel into an internal
@@ -25,6 +26,9 @@ type AudioInput = string | URL | Float32Array | Float64Array;
 type AudioPipelineInputs = AudioInput | AudioInput[];
 
 export type DistilBertLabel = 'NEGATIVE' | 'POSITIVE';
+
+/** The CLIP embedding of one video frame, as the `'[...]'` string a `vector` column takes */
+export type FrameEmbedding = { frameIndex: number; embedding: string };
 
 export type DistilBertResponse = {
   label: DistilBertLabel;
@@ -266,6 +270,24 @@ export class AIService {
   async getToxicScore(text: string): Promise<number> {
     const output = await this.toxicAnalysis(text);
     return output.find(({ label }) => label === AIService.toxicLabel)?.score ?? 0;
+  }
+
+  /**
+   * CLIP embeddings of a video's frames; a frame that fails is skipped. Every path
+   * that embeds a video (live, /ignoremedia, the history import) goes through here,
+   * so a re-uploaded video gets the same embeddings whichever way it came in.
+   */
+  async getFrameEmbeddings(frames: VideoFrame[]): Promise<FrameEmbedding[]> {
+    const embeddings: FrameEmbedding[] = [];
+    for (const { frameIndex, buffer } of frames) {
+      try {
+        const rawImage = await this.getRawImageFromBuffer(buffer);
+        embeddings.push({ frameIndex, embedding: JSON.stringify(await this.getImageClipEmbedding(rawImage)) });
+      } catch (e) {
+        console.log(`Error processing frame ${frameIndex}:`, e);
+      }
+    }
+    return embeddings;
   }
 
   async getEmbeddingStringByImageUrl(url: string | URL): Promise<string> {

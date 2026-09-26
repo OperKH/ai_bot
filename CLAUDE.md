@@ -108,8 +108,8 @@ together. Helpers live next to their users in `src/bot/` (`telegramFiles.ts`, `t
   - Long work goes to a `BackgroundQueue` ([backgroundQueue.ts](src/bot/backgroundQueue.ts)),
     which frees the slot: jobs run one at a time, in order, a failed one is logged (or apologised for, via
     `apologize` from bot.class.ts) without holding up the rest, and the owning command closes the queue
-    when disposed, so the shutdown waits for the job in progress. `/searchmedia` pages and transcriptions
-    use it: a page probes each result whose message may be gone with a reply sent and taken back, paced by
+    when disposed, so the shutdown waits for the job in progress. `/searchmedia` pages, transcriptions
+    and `/trends` analyses (tens of seconds of LLM calls) use it: a page probes each result whose message may be gone with a reply sent and taken back, paced by
     the throttler, so in a chat with many deleted messages one page takes minutes.
   - `/starthistoryimport` runs for hours, so it is started without `await` and not waited for at shutdown.
 - **Transcription queue** ([transcriptionQueue.ts](src/bot/commands/transcriptionQueue.ts)): a voice
@@ -135,8 +135,8 @@ together. Helpers live next to their users in `src/bot/` (`telegramFiles.ts`, `t
   - Polling stops, and updates that have not started are dropped (Telegram already counts them as
     delivered).
   - The ones in progress finish, then the commands are disposed, closing their background queues: the
-    search page or transcription in progress finishes too, and queued transcriptions get a notice in place
-    of their 💬. All of it shares 25 s (`STOP_TIMEOUT_MS`, under `stop_grace_period: 30s` in docker-compose).
+    search page, transcription or trends analysis in progress finishes too, queued transcriptions get a
+    notice in place of their 💬, and queued analyses turn back into the period picker. All of it shares 25 s (`STOP_TIMEOUT_MS`, under `stop_grace_period: 30s` in docker-compose).
   - The AI models are released after that, once: `AIService` is a singleton shared by several commands,
     so no command disposes it.
   - The database closes, the traces are flushed and the process exits. No step throws — each logs its own
@@ -152,6 +152,21 @@ The cloud Bot API only serves files up to **20 MB**, so larger videos cannot be 
 handler fails into `bot.catch`. History import is not affected: it downloads through gramjs (MTProto),
 which has no such limit. Running a local `telegram-bot-api` server with `--local` would lift the limit to
 2 GB without code changes: such a server hands out absolute file paths, which the helper reads from disk.
+
+### Trends Report
+
+The `/trends` report is one rich message (Bot API rich messages, typed in grammY 1.46), built from blocks by
+[trendsMessage.ts](src/bot/commands/trendsMessage.ts):
+
+- The period picker itself becomes the report: `editMessageText` with a rich message turns the plain
+  message into it, so no second message goes out.
+- The text goes into the blocks as data, so nothing is escaped, and a rich message holds 32768 characters
+  and 500 blocks, so the report is never split.
+- Event dates stay text, as the model writes them, not `date_time` elements: turning "18:00" into an
+  instant needs the author's time zone, which a bot is not told (and one chat's members may live in
+  different zones), and adding such a date to the calendar puts the whole report into the description.
+- `TrendsService` only returns data (`null` for a period without messages); every message, the "nothing
+  found" and error ones included, comes from the command, which then offers the periods again.
 
 ### Singleton Services
 
@@ -205,7 +220,10 @@ Required environment variables:
 
 ### Database Entities
 
-TypeORM entities with decorators:
+TypeORM entities with decorators. **Date columns are `timestamptz`, never `timestamp`**: a `timestamp`
+column takes a JS Date in the bot process's time zone while `now()` fills it in the database's (UTC), so
+where the two differ, as on a developer machine in Kyiv, "messages of the last 3 hours" found nothing
+(migration `UseTimestampWithTimeZone`).
 
 - **ChatPhotoMessage**: Stores media embeddings with vector column for similarity search
   - `chatId`: Chat identifier
@@ -602,8 +620,8 @@ What is covered:
     the next page, a double tap shows one page). The command supplies the ports, the tests a fake chat.
   - [transcriptionQueue.ts](src/bot/commands/transcriptionQueue.ts): every voice message gets its 💬
     without waiting for the transcriptions ahead of it.
-  - [trendsMessage.ts](src/bot/commands/trendsMessage.ts): the `/trends` message — MarkdownV2 escaping,
-    and splitting so no chunk exceeds Telegram's 4096 characters.
+  - [trendsMessage.ts](src/bot/commands/trendsMessage.ts): the `/trends` report — the model text goes in
+    unescaped, empty sections are left out, each point links to its messages.
 - [updateQueue.test.ts](src/bot/updateQueue.test.ts) runs the real grammY bot and runner against a fake Bot
   API with a backlog of several chats: the slot limit holds for a whole batch, one chat stays in order,
   and a stop drops what has not started. Its chats are chosen so that each of these breaks the test when

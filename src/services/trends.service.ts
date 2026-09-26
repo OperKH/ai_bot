@@ -62,16 +62,23 @@ export class TrendsService {
     return aligned;
   }
 
+  /** The cached summary of a period, if no message came after it; a stale one is removed */
   private async getCachedOrInvalidate(
     chatId: string,
     periodStart: Date,
     periodHours: number,
-  ): Promise<TrendsSummary | null> {
+  ): Promise<SummarizationResult | null> {
     const cached = await this.trendsSummaryRepo.findOne({
       where: { chatId, periodStart, periodHours },
     });
 
     if (!cached) {
+      return null;
+    }
+
+    // A row from before the structured result counts as stale
+    if (!cached.resultJson) {
+      await this.trendsSummaryRepo.delete({ id: cached.id });
       return null;
     }
 
@@ -84,7 +91,7 @@ export class TrendsService {
 
     if (newMessagesCount === 0) {
       console.log(`${TrendsService.LOG_PREFIX} ✅ Cache hit`);
-      return cached;
+      return cached.resultJson;
     }
 
     console.log(`${TrendsService.LOG_PREFIX} Cache stale (${newMessagesCount} new messages), invalidating`);
@@ -104,14 +111,15 @@ export class TrendsService {
   }
 
   // Public API
-  async getTrendsSummary(chatId: number, hours: number): Promise<SummarizationResult | string> {
+  /** The chat's summary for the last `hours`, or null if nothing was written in them */
+  async getTrendsSummary(chatId: number, hours: number): Promise<SummarizationResult | null> {
     if (hours <= BASE_PERIOD_HOURS) {
       return this.generateDirectSummary(chatId, hours);
     }
     return this.getAggregatedSummary(chatId, hours);
   }
 
-  private async generateDirectSummary(chatId: number, hours: number): Promise<SummarizationResult | string> {
+  private async generateDirectSummary(chatId: number, hours: number): Promise<SummarizationResult | null> {
     const now = new Date();
     const periodStart = new Date(now.getTime() - hours * 60 * 60 * 1000);
     const alignedStart = this.alignToBlockBoundary(periodStart);
@@ -119,7 +127,7 @@ export class TrendsService {
     // Check cache
     const cached = await this.getCachedOrInvalidate(String(chatId), alignedStart, BASE_PERIOD_HOURS);
     if (cached) {
-      return cached.resultJson ?? cached.summary;
+      return cached;
     }
 
     // Fetch messages
@@ -132,7 +140,7 @@ export class TrendsService {
     });
 
     if (messages.length === 0) {
-      return 'За цей період повідомлень не знайдено';
+      return null;
     }
 
     // Generate summary
@@ -153,7 +161,7 @@ export class TrendsService {
     return result;
   }
 
-  private async getAggregatedSummary(chatId: number, hours: number): Promise<SummarizationResult | string> {
+  private async getAggregatedSummary(chatId: number, hours: number): Promise<SummarizationResult | null> {
     const now = new Date();
     const periodStart = new Date(now.getTime() - hours * 60 * 60 * 1000);
     const alignedStart = this.alignToBlockBoundary(periodStart);
@@ -161,7 +169,7 @@ export class TrendsService {
     // Check cache
     const cached = await this.getCachedOrInvalidate(String(chatId), alignedStart, hours);
     if (cached) {
-      return cached.resultJson ?? cached.summary;
+      return cached;
     }
 
     // Fetch all messages for the period
@@ -174,7 +182,7 @@ export class TrendsService {
     });
 
     if (messages.length === 0) {
-      return 'За цей період повідомлень не знайдено';
+      return null;
     }
 
     let result: SummarizationResult;

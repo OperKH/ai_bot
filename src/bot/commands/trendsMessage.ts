@@ -1,150 +1,89 @@
+import type { InputRichBlock, InputRichMessage, RichBlockTableCell, RichText } from 'grammy/types';
 import type { SummarizationResult } from '../../services/openai.service.js';
 import { messageLink } from '../telegramLinks.js';
 
-/** Telegram refuses a longer message */
-const TELEGRAM_MESSAGE_LIMIT = 4096;
+const heading = (text: string, size: 2 | 3 = 3): InputRichBlock => ({ type: 'heading', text, size });
+
+const cell = (text: RichText, align: 'left' | 'right', is_header?: true): RichBlockTableCell => ({
+  text,
+  align,
+  valign: 'middle',
+  is_header,
+});
+
+/** A paragraph followed by links to the messages it is based on, one 💬 each */
+const linkedParagraph = (chatId: number, text: RichText, messageIds: string[] = []): InputRichBlock => ({
+  type: 'paragraph',
+  text: [
+    text,
+    ...messageIds.flatMap((id) => [' ', { type: 'url' as const, text: '💬', url: messageLink(chatId, id) }]),
+  ],
+});
+
+const pointList = (chatId: number, points: { text: RichText; messageIds?: string[] }[]): InputRichBlock => ({
+  type: 'list',
+  items: points.map((p) => ({ blocks: [linkedParagraph(chatId, p.text, p.messageIds)] })),
+});
 
 /**
- * Splits a long message into chunks by sections (double newlines).
- * Each chunk contains complete sections that fit within the limit.
+ * The trends summary as one rich message: the overview first, the main points
+ * open, the side topics folded away. Text goes in as data, so nothing needs escaping.
  */
-export function splitMessage(text: string, limit: number = TELEGRAM_MESSAGE_LIMIT): string[] {
-  if (text.length <= limit) {
-    return [text];
+export function trendsRichMessage(result: SummarizationResult, periodLabel: string, chatId: number): InputRichMessage {
+  const blocks = [heading(`📰 Тренди за ${periodLabel}`, 2)];
+
+  if (result.fullSummary) {
+    blocks.push({ type: 'blockquote', blocks: [{ type: 'paragraph', text: result.fullSummary }] });
   }
 
-  const sections = text.split('\n\n');
-  const chunks: string[] = [];
-  let currentChunk = '';
-
-  for (const section of sections) {
-    const sectionWithSeparator = currentChunk ? '\n\n' + section : section;
-
-    if (currentChunk.length + sectionWithSeparator.length <= limit) {
-      // Section fits in current chunk
-      currentChunk += sectionWithSeparator;
-    } else if (section.length > limit) {
-      // Section itself is too long - need to split it by lines
-      if (currentChunk) {
-        chunks.push(currentChunk);
-        currentChunk = '';
-      }
-
-      // Split oversized section by lines, and a line longer than the limit into pieces
-      const lines = section.split('\n').flatMap((line) => splitLongLine(line, limit));
-      for (const line of lines) {
-        const lineWithSeparator = currentChunk ? '\n' + line : line;
-        if (currentChunk.length + lineWithSeparator.length <= limit) {
-          currentChunk += lineWithSeparator;
-        } else {
-          if (currentChunk) {
-            chunks.push(currentChunk);
-          }
-          currentChunk = line;
-        }
-      }
-    } else {
-      // Section doesn't fit - start new chunk
-      if (currentChunk) {
-        chunks.push(currentChunk);
-      }
-      currentChunk = section;
+  if (result.topParticipants.length > 0) {
+    blocks.push(heading('🔥 Топ учасників'), {
+      type: 'table',
+      is_striped: true,
+      cells: [
+        [cell('Учасник', 'left', true), cell('Повідомлень', 'right', true)],
+        ...result.topParticipants.map((p) => [
+          cell([{ type: 'bold', text: p.name }, p.nickName ? ` @${p.nickName}` : ''], 'left'),
+          cell(String(p.messageCount), 'right'),
+        ]),
+      ],
+    });
+    const described = result.topParticipants.filter((p) => p.summary);
+    if (described.length > 0) {
+      blocks.push({
+        type: 'details',
+        summary: 'Хто про що писав',
+        blocks: [
+          pointList(
+            chatId,
+            described.map((p) => ({ text: [{ type: 'bold', text: p.name }, ` — ${p.summary}`] })),
+          ),
+        ],
+      });
     }
   }
 
-  if (currentChunk) {
-    chunks.push(currentChunk);
+  const sections = [
+    ['🗣️ Основні теми', result.topics.map((t) => ({ text: t.topic, messageIds: t.messageIds }))],
+    ['📈 Тренди', result.trends.map((t) => ({ text: t.trend, messageIds: t.messageIds }))],
+    ['📅 Заплановані події', result.events.map((e) => ({ text: e.event, messageIds: e.messageIds }))],
+  ] as const;
+  for (const [label, points] of sections) {
+    if (points.length > 0) blocks.push(heading(label), pointList(chatId, points));
   }
 
-  return chunks;
-}
-
-/**
- * Cuts a line longer than the limit — the model writes the full summary as one
- * paragraph — at the last space that fits, or at the limit if there is none,
- * but never between a MarkdownV2 escape and the character it escapes.
- */
-function splitLongLine(line: string, limit: number): string[] {
-  const pieces: string[] = [];
-  let rest = line;
-  while (rest.length > limit) {
-    const space = rest.lastIndexOf(' ', limit);
-    let cut = space > 0 ? space : limit;
-    if (rest[cut - 1] === '\\') cut--;
-    pieces.push(rest.slice(0, cut));
-    rest = rest.slice(cut).trimStart();
-  }
-  pieces.push(rest);
-  return pieces;
-}
-
-/** Escapes the characters MarkdownV2 reserves, so text from the model shows as it is */
-export function escapeMarkdown(text: string): string {
-  return text.replace(/[_*[\]()~`>#+=|{}.!-]/g, '\\$&');
-}
-
-function formatMessageLinks(chatId: number, messageIds: string[]): string {
-  if (!messageIds || messageIds.length === 0) return '';
-  const links = messageIds.map((messageId) => `[💬](${messageLink(chatId, messageId)})`).join(' ');
-  return ` ${links}`;
-}
-
-/** The trends summary as a MarkdownV2 message, with links to the messages each point is based on */
-export function formatSummary(result: SummarizationResult, periodLabel: string, chatId: number): string {
-  const lines: string[] = [
-    `📰 *Тренди за останні ${escapeMarkdown(periodLabel)}*`,
-    '',
-    '*🔥 Топ учасників:*',
-    ...result.topParticipants.map(
-      (p, i) =>
-        `${i + 1}\\. *${escapeMarkdown(p.name)}* \\(@${escapeMarkdown(p.nickName)}\\) — ${p.messageCount} повідомлень` +
-        (p.summary ? `\n   _${escapeMarkdown(p.summary)}_` : ''),
-    ),
-  ];
-
-  if (result.topics && result.topics.length > 0) {
-    lines.push(
-      '',
-      '*🗣️ Основні теми:*',
-      ...result.topics.map((t) => `• ${escapeMarkdown(t.topic)}${formatMessageLinks(chatId, t.messageIds)}`),
-    );
+  const folded = [
+    ['🎮 Ігрова тематика', result.gaming],
+    ['😂 Мем-тренди', result.memes],
+  ] as const;
+  for (const [label, section] of folded) {
+    if (!section) continue;
+    blocks.push({
+      type: 'details',
+      summary: { type: 'bold', text: label },
+      blocks: [linkedParagraph(chatId, section.summary, section.messageIds)],
+    });
   }
 
-  if (result.trends && result.trends.length > 0) {
-    lines.push(
-      '',
-      '*📈 Тренди:*',
-      ...result.trends.map((t) => `• ${escapeMarkdown(t.trend)}${formatMessageLinks(chatId, t.messageIds)}`),
-    );
-  }
-
-  if (result.gaming) {
-    lines.push(
-      '',
-      '*🎮 Ігрова тематика:*',
-      `${escapeMarkdown(result.gaming.summary)}${formatMessageLinks(chatId, result.gaming.messageIds)}`,
-    );
-  }
-
-  if (result.memes) {
-    lines.push(
-      '',
-      '*😂 Мем\\-тренди:*',
-      `${escapeMarkdown(result.memes.summary)}${formatMessageLinks(chatId, result.memes.messageIds)}`,
-    );
-  }
-
-  if (result.events && result.events.length > 0) {
-    lines.push(
-      '',
-      '*📅 Заплановані події:*',
-      ...result.events.map((e) => `• ${escapeMarkdown(e.event)}${formatMessageLinks(chatId, e.messageIds)}`),
-    );
-  }
-
-  if (result.fullSummary) {
-    lines.push('', '*📝 Загальний підсумок:*', escapeMarkdown(result.fullSummary));
-  }
-
-  return lines.join('\n');
+  return { blocks };
 }

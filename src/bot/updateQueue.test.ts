@@ -1,4 +1,4 @@
-import { after, afterEach, before, describe, it } from 'node:test';
+import { afterEach, beforeEach, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import { setTimeout as sleep } from 'node:timers/promises';
@@ -95,14 +95,20 @@ const until = async (done: () => boolean, timeoutMs = 3000) => {
 };
 
 describe('UpdateQueue', { timeout: 10_000 }, () => {
-  const telegram = new FakeTelegram();
+  // A server per test: the bot of the test before aborts its last getUpdates on
+  // stop, and a loaded machine may only handle that request after the next test
+  // has put in its backlog, which would then go to a closed connection
+  let telegram: FakeTelegram;
   let running: UpdateQueue | undefined;
 
-  before(() => telegram.start());
-  after(() => telegram.stop());
+  beforeEach(async () => {
+    telegram = new FakeTelegram();
+    await telegram.start();
+  });
   afterEach(async () => {
     await running?.stop();
     running = undefined;
+    telegram.stop();
   });
 
   // Five chats, so the order within a chat cannot be what keeps them apart

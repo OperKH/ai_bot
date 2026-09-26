@@ -35,6 +35,6 @@ export class MediaSearch extends BaseEntity {
   @Column({ type: 'bigint', nullable: true })
   buttonMessageId!: string | null;
 
-  @Column({ type: 'timestamp', default: () => 'CURRENT_TIMESTAMP' })
+  @Column({ type: 'timestamptz', default: () => 'CURRENT_TIMESTAMP' })
   createdAt!: Date;
 }

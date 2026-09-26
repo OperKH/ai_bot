@@ -11,10 +11,10 @@ export class TrendsSummary extends BaseEntity {
   chatId!: string;
 
   @Index('trends_summary_periodStart_idx')
-  @Column({ type: 'timestamp' })
+  @Column({ type: 'timestamptz' })
   periodStart!: Date;
 
-  @Column({ type: 'timestamp' })
+  @Column({ type: 'timestamptz' })
   periodEnd!: Date;
 
   @Column({ type: 'int' })
@@ -26,6 +26,6 @@ export class TrendsSummary extends BaseEntity {
   @Column({ type: 'jsonb', nullable: true })
   resultJson!: SummarizationResult | null;
 
-  @Column({ type: 'timestamp', default: () => 'CURRENT_TIMESTAMP' })
+  @Column({ type: 'timestamptz', default: () => 'CURRENT_TIMESTAMP' })
   createdAt!: Date;
 }

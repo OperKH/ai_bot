@@ -1,86 +1,91 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import type { InputRichBlock, RichText } from 'grammy/types';
 import type { SummarizationResult } from '../../services/openai.service.js';
-import { escapeMarkdown, formatSummary, splitMessage } from './trendsMessage';
+import { trendsRichMessage } from './trendsMessage';
 
-const LIMIT = 100;
+const CHAT_ID = -1001906889754;
 
-describe('splitMessage', () => {
-  it('leaves a message within the limit whole', () => {
-    assert.deepEqual(splitMessage('коротко', LIMIT), ['коротко']);
-  });
+/** The text a reader sees in a piece of rich text, links shown by their label */
+const plain = (text: RichText): string => {
+  if (typeof text === 'string') return text;
+  if (Array.isArray(text)) return text.map(plain).join('');
+  return 'text' in text ? plain(text.text) : '';
+};
 
-  it('keeps sections whole and every chunk within the limit', () => {
-    const sections = Array.from({ length: 8 }, (_, i) => `розділ ${i}: ` + 'слово '.repeat(5));
-    const chunks = splitMessage(sections.join('\n\n'), LIMIT);
+/** Every URL in a piece of rich text */
+const urls = (text: RichText): string[] => {
+  if (typeof text === 'string') return [];
+  if (Array.isArray(text)) return text.flatMap(urls);
+  return text.type === 'url' ? [text.url] : 'text' in text ? urls(text.text) : [];
+};
 
-    assert.ok(chunks.length > 1);
-    for (const chunk of chunks) assert.ok(chunk.length <= LIMIT, `${chunk.length} > ${LIMIT}`);
-    assert.deepEqual(chunks.join('\n\n').split('\n\n'), sections, 'no section split or lost');
-  });
-
-  it('splits a section longer than the limit by its lines', () => {
-    const lines = Array.from({ length: 10 }, (_, i) => `рядок ${i} ` + 'x'.repeat(20));
-    const chunks = splitMessage(lines.join('\n'), LIMIT);
-
-    for (const chunk of chunks) assert.ok(chunk.length <= LIMIT, `${chunk.length} > ${LIMIT}`);
-    assert.deepEqual(chunks.join('\n').split('\n'), lines, 'no line split or lost');
-  });
-
-  it('never sends a chunk over the limit, even for a single line longer than it', () => {
-    const line = 'довгий підсумок без переносів '.repeat(12);
-    const chunks = splitMessage(`заголовок\n\n${line}`, LIMIT);
-
-    for (const chunk of chunks) assert.ok(chunk.length <= LIMIT, `${chunk.length} > ${LIMIT}`);
-    assert.equal(chunks.join('').replace(/\s/g, ''), `заголовок${line}`.replace(/\s/g, ''), 'no text lost');
-  });
-});
-
-describe('splitMessage on MarkdownV2', () => {
-  it('does not cut a line without spaces between an escape and the character it escapes', () => {
-    const line = escapeMarkdown('a.'.repeat(80));
-    const chunks = splitMessage(`заголовок\n\n${line}`, LIMIT);
-
-    for (const chunk of chunks) {
-      assert.ok(chunk.length <= LIMIT, `${chunk.length} > ${LIMIT}`);
-      assert.doesNotMatch(chunk, /(^|[^\\])(\\\\)*\\$/, 'a chunk ends with a lone backslash');
+/**
+ * The message as a reader goes through it, one line per block: headings as `#`,
+ * list items as `-`, folded blocks as `[+]` with their content under them
+ */
+const outline = (blocks: InputRichBlock[]): string[] =>
+  blocks.flatMap((b): string[] => {
+    switch (b.type) {
+      case 'heading':
+        return [`# ${plain(b.text)}`];
+      case 'paragraph':
+        return [plain(b.text)];
+      case 'blockquote':
+        return outline(b.blocks).map((line) => `> ${line}`);
+      case 'list':
+        return b.items.flatMap((item) => outline(item.blocks).map((line) => `- ${line}`));
+      case 'table':
+        return b.cells.map((row) => row.map((c) => plain(c.text ?? '')).join(' | '));
+      case 'details':
+        return [`[${b.is_open ? '-' : '+'}] ${plain(b.summary)}`, ...outline(b.blocks).map((line) => `  ${line}`)];
+      default:
+        return [];
     }
   });
-});
 
-describe('escapeMarkdown', () => {
-  it('escapes every character MarkdownV2 reserves and leaves the rest', () => {
-    const reserved = '_*[]()~`>#+-=|{}.!';
-    assert.equal(escapeMarkdown(reserved), [...reserved].map((c) => `\\${c}`).join(''));
-    assert.equal(escapeMarkdown('Привіт, як справи?'), 'Привіт, як справи?');
-  });
-});
-
-describe('formatSummary', () => {
-  const result = {
-    topParticipants: [{ name: 'Іван (адмін)', nickName: 'ivan_k', messageCount: 12, summary: 'Писав про ігри.' }],
-    topics: [{ topic: 'Нова консоль', messageIds: ['101', '102'] }],
-    trends: [],
-    gaming: null,
-    memes: null,
-    events: [],
-    fullSummary: 'Спокійний день!',
-  } as unknown as SummarizationResult;
-
-  it('escapes the model text and links each point to its messages', () => {
-    const text = formatSummary(result, '24 години', -1001906889754);
-
-    assert.match(text, /\*Іван \\\(адмін\\\)\* \\\(@ivan\\_k\\\)/);
-    assert.match(text, /_Писав про ігри\\\._/);
-    assert.match(
-      text,
-      /• Нова консоль \[💬\]\(https:\/\/t\.me\/c\/1906889754\/101\) \[💬\]\(https:\/\/t\.me\/c\/1906889754\/102\)/,
-    );
-    assert.match(text, /Спокійний день\\!/);
+/** Every link in the message, in reading order */
+const links = (blocks: InputRichBlock[]): string[] =>
+  blocks.flatMap((b): string[] => {
+    if (b.type === 'paragraph') return urls(b.text);
+    if (b.type === 'list') return b.items.flatMap((item) => links(item.blocks));
+    if (b.type === 'details') return links(b.blocks);
+    return [];
   });
 
-  it('leaves out the sections the model returned empty', () => {
-    const text = formatSummary(result, '24 години', -1001906889754);
-    assert.doesNotMatch(text, /Тренди:|Ігрова тематика|Мем|Заплановані події/);
+const result: SummarizationResult = {
+  topParticipants: [{ name: 'Іван (адмін)', nickName: 'ivan_k', messageCount: 12, summary: 'Писав про ігри.' }],
+  topics: [{ topic: 'Нова консоль', messageIds: ['101', '102'] }],
+  trends: [],
+  gaming: { summary: 'Чекають на реліз.', messageIds: ['103'] },
+  memes: null,
+  events: [],
+  fullSummary: 'Спокійний день!',
+};
+
+describe('trendsRichMessage', () => {
+  it('reads as the period, the overview, then the points; empty sections left out, side topics folded', () => {
+    assert.deepEqual(outline(trendsRichMessage(result, '24 години', CHAT_ID).blocks!), [
+      '# 📰 Тренди за 24 години',
+      '> Спокійний день!',
+      '# 🔥 Топ учасників',
+      'Учасник | Повідомлень',
+      'Іван (адмін) @ivan_k | 12',
+      '[+] Хто про що писав',
+      '  - Іван (адмін) — Писав про ігри.',
+      '# 🗣️ Основні теми',
+      '- Нова консоль 💬 💬',
+      '[+] 🎮 Ігрова тематика',
+      '  Чекають на реліз. 💬',
+    ]);
   });
+
+  it('links each point to the messages it is based on', () => {
+    assert.deepEqual(links(trendsRichMessage(result, '24 години', CHAT_ID).blocks!), [
+      'https://t.me/c/1906889754/101',
+      'https://t.me/c/1906889754/102',
+      'https://t.me/c/1906889754/103',
+    ]);
+  });
+
 });

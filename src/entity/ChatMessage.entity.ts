@@ -38,6 +38,6 @@ export class ChatMessage extends BaseEntity {
   mediaDescription!: string | null;
 
   @Index('chat_message_createdAt_idx')
-  @Column({ type: 'timestamp', default: () => 'CURRENT_TIMESTAMP' })
+  @Column({ type: 'timestamptz', default: () => 'CURRENT_TIMESTAMP' })
   createdAt!: Date;
 }

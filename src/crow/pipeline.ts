@@ -34,7 +34,7 @@ import type { CrowStore, ItemPlacement, SubscribedChat } from './store';
 import { gameStoryVerdict, storyVerdict, type StoryVerdict } from './stories';
 import { MAX_RUMOR_UPDATE_LENGTH, writeRumorUpdate } from './toldYou';
 import { BETS_PER_WEEK, MAX_BET_DAYS, MIN_BET_DAYS, withBet, writeBet } from './bets';
-import { dateLabel } from './words';
+import { yearDateLabel } from './words';
 import { type ConditionalState, type FeedItem, fetchText, parseFeed, parseSitemap, readPage } from './sources/feed';
 import type { SourceDefinition } from './sources/source';
 
@@ -455,7 +455,7 @@ export class CrowPipeline {
 
   private async confirmRumor(story: CrowStory, official: CrowSourceItem[], pay: (costUsd: number) => void) {
     const { text: materials } = await this.materials(story, official);
-    const factsReply = await this.llm.facts(story.title, materials);
+    const factsReply = await this.llm.facts(story.title, materials, yearDateLabel(localDate(new Date(), 'UTC')));
     pay(factsReply.costUsd);
     const officialFacts: CrowFact[] = factsReply.result
       .slice(0, MAX_FACTS)
@@ -590,7 +590,7 @@ export class CrowPipeline {
     const now = new Date();
 
     const { text: materials, imageUrl } = await this.materials(story, items);
-    const factsReply = await this.llm.facts(story.title, materials);
+    const factsReply = await this.llm.facts(story.title, materials, yearDateLabel(localDate(now, 'UTC')));
     pay(factsReply.costUsd);
     const facts: CrowFact[] = factsReply.result.slice(0, MAX_FACTS).map((text, i) => ({ id: `F${i + 1}`, text }));
     if (facts.length === 0) throw new Error('no facts in the sources');
@@ -711,7 +711,7 @@ export class CrowPipeline {
       const today = localDate(now, 'UTC');
       const written = await writeBet(
         (request) => this.priced(this.llm.bet(request), pay),
-        { title: story.title, facts, today: `${dateLabel(today)} ${today.year}`, minDays: MIN_BET_DAYS, maxDays: MAX_BET_DAYS },
+        { title: story.title, facts, today: yearDateLabel(today), minDays: MIN_BET_DAYS, maxDays: MAX_BET_DAYS },
         facts,
         today,
       );

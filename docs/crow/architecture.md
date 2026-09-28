@@ -59,7 +59,7 @@ Tables `crow_post` and `crow_job`; every change goes through `CrowStore`.
   chain of an arc, with its own `text` and the `mention` of its cat; `intro` — the crow telling the chat she
   reads it; `digest` — the morning digest ([behavior.md](behavior.md#the-morning-digest)), a post with its
   own `text` that belongs to no single story; `goodbye` — the evening goodbye
-  ([behavior.md](behavior.md#the-evening-goodbye)), due 20 minutes before the quiet hours and expiring
+  ([behavior.md](behavior.md#the-evening-goodbye)), due 16 minutes before the quiet hours and expiring
   when they begin. Once a goodbye is sent, the chat's `nextPostAt` is the start of its quiet hours, so
   nothing comes after it that evening (`nextPostTime`). A post's `seq` is its place in the chat's chain of its story,
   jabs among the arc's messages. Calling off a planned jab hands the turn on, as leaving `planned` does.
@@ -128,7 +128,8 @@ Tables `crow_post` and `crow_job`; every change goes through `CrowStore`.
   a collage of its stories' pictures the same way. The first post of a story — its opening, or the digest
   that tells it — ends with the links to the stories' pages (`newsLinks`, from `crow_story.sources`); the
   model's texts carry none. Once a post is sent, the chat's post before it loses
-  «Кш!» (`editMessageReplyMarkup`), so the button lives under the latest post only; a failure to take it off
+  «Кш!» (`editMessageReplyMarkup`), so the button lives under the latest post only — a post without the button
+  leaves it (`shoo: 'leaves'`), and the goodbye takes it off (`'takes'`), after which there is none to take; a failure to take it off
   is logged and leaves it there. A 403 means the bot is no longer in the chat: its subscriptions go and its
   planned posts are cancelled. What follows a sent post — the picture's `file_id` kept, the week's vote sent
   under the weekly digest — failing leaves the post sent.
@@ -185,6 +186,7 @@ keeps the rows consistent.
 | `CrowChat` | `crow_chat` | A chat's settings: `boldness`, `quietFrom`/`quietTo` (minutes after midnight in the chat's zone, null — none), `snoozedUntil`, `settingsAdminOnly`, `personalJabs`, and `nextPostAt` for the minimal gap; `introducedAt` — when the crow told the chat she reads it; `firstPostAt` — when her first post went out there, her birthday ([behavior.md](behavior.md#birthday)) |
 | `CrowChatProfile` | `crow_chat_profile` | The chat's profile for the jabs: interests, running jokes, each cat's topics (games and tech only); `messageCount`, `builtAt` |
 | `CrowMemberOptout` | `crow_member_optout` | `(chatId, userId)` of the cats who pressed «🙅 Не чіпай мене» |
+| `CrowNickname` | `crow_nickname` | How she calls a cat of a chat in her talks, «вовче», and when she last did |
 | `CrowSubscription` | `crow_subscription` | `(chatId, categoryId)` |
 | `CrowStory` | `crow_story` | A story shared by every chat: `storyKey`, `title`, `topicKey` (an AI news's; a game news has none), `vendor`, `hero`, `aliases` (how the cats may call its heroes), `categories`, `importance`, `isRumor`, `eventType` (a game news's: a release date, a delay, a giveaway…), `facts`, `sources`, the picture (`imageUrl`, `imageFileId`), the crow's verdict `stance`, the `bet` it offers, the `quiz` its long arcs carry, the `deadline` its games come or go at with the crow's reminder and the `games` of its list (title, platforms, picture), `confirmedAt` of a rumor that came true; `status` `pending` → `ready` / `failed` / `dropped` |
 | `CrowStoryMessage` | `crow_story_message` | The arc: `seq`, `kind` (breaking, fact, practical, versus), `crows`, `text`, `table`, `optional`, `factIds`, `embedding` — the vector of the facts it tells, so a talk finds the post before its turn |
@@ -197,11 +199,11 @@ keeps the rows consistent.
 | `CrowSourceItem` | `crow_source_item` | Every entry a source listed: `key`, `title`, `url`, `summary`, `contentHash`, `status` (`seen`, `new`, `irrelevant`, `attached` to a story); `embedding` of a relevant one's headline, for gathering a game news; the `deadline` of a store's list and its `games` |
 | `CrowRoster` | `crow_roster` | The current models of each lab ([pipeline.md](pipeline.md#roster)) |
 
-The migration is `AddCrow`, which also seeds the roster. The `cleanup` job removes
+The migrations are `AddCrow`, which also seeds the roster, and `AddCrowNickname`, the nicknames' table added after it shipped. The `cleanup` job removes
 posts older than 400 days — a year and a month, since her birthday tells the year of a chat — then the stories no
 post refers to, then their messages and their stores, and the settled polls of that age with their votes. A
 story's vectors, its messages' and its details', go after 90 days: a talk hears the stories of 48 hours. The
-streams go 180 days after they began. The sources' entries stay — a sitemap lists all it ever had, and a
+streams go 180 days after they began, and a nickname 30 days after she last called a cat so. The sources' entries stay — a sitemap lists all it ever had, and a
 forgotten entry would be news again — but their vectors go after 90 days and their texts after 180 days.
 
 The vectors are EmbeddingGemma's, `halfvec(768)`, null where the model failed. They have no vector index: every

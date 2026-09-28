@@ -190,13 +190,13 @@ export class CrowLlm {
     });
   }
 
-  /** The facts of one story, from what its sources say */
-  async facts(title: string, materials: string): Promise<Priced<string[]>> {
+  /** The facts of one story, from what its sources say; `today`, «28 вересня 2026», tells a release that came from one still ahead */
+  async facts(title: string, materials: string, today: string): Promise<Priced<string[]>> {
     const { result, costUsd } = await this.call('crow', {
       name: 'Extract Crow Facts',
       schemaName: 'crow_facts',
       system: FACTS_PROMPT,
-      user: `Новина: ${title}\n\nМатеріали:\n\n${materials}`,
+      user: `Сьогодні: ${today}\n\nНовина: ${title}\n\nМатеріали:\n\n${materials}`,
       schema: FactsSchema,
     });
     return { result: result.facts, costUsd };

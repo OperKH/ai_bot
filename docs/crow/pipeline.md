@@ -78,7 +78,11 @@ the four sites of Hookshot Media are one, IGN, Eurogamer and Rock Paper Shotgun 
   meanwhile.
 
 **The release radar** reads the roundups of the week among these entries — Xbox Wire's «Next Week on XBOX»,
-Push Square's and Pure Xbox's weekly guides — whatever the sorting made of them ([behavior.md](behavior.md#the-release-radar)).
+Push Square's and Pure Xbox's weekly guides — whatever the sorting made of them, and the week of Nintendo's
+European store, asked of the search its site uses — `searching.nintendo-europe.com`, public JSON, no key —
+when the radar is prepared ([nintendoStore.ts](../../src/crow/sources/nintendoStore.ts),
+[behavior.md](behavior.md#the-release-radar)). Nintendo Life has no weekly guide in its feeds, and its pages are
+behind Cloudflare.
 
 **Streams** have sources of their own ([streamSources.ts](../../src/crow/sources/streamSources.ts)), each a
 job `stream:<id>` that finds streams rather than news ([behavior.md](behavior.md#streams)):
@@ -184,7 +188,9 @@ flowchart LR
    page, up to 8000 characters) where the site allows — openai.com refuses a bot.
 2. **Facts:** `OPENAI_CROW_MODEL` extracts up to 16 facts (`FACTS_PROMPT`): one sentence each, only what
    the materials say, with attribution kept («за словами Anthropic») where dropping it would turn a claim
-   into a fact, no times of day.
+   into a fact, no times of day. The request carries today's date (UTC), and the tense is the source's: a
+   release still ahead stays «вийде», however much the press's hands-on reads as if the game were out — without
+   the date luna once wrote «вийшла 29 вересня» on the 28th.
 3. **The outline** — the code, not the model, decides the shape of the arc
    ([arcOutline.ts](../../src/crow/arcOutline.ts)): the news with the first six facts (3–8 bullets, up to
    ~1500 characters, sent with the picture — with three facts and 600 characters, half of which her word took,

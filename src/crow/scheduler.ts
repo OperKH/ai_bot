@@ -11,7 +11,7 @@ import { crowRichMessage, newsLinks, type PostContent } from './crowMessage';
 import { withReleaseLine } from './countdowns';
 import { streamContent } from './events';
 import { dropStoryImage, storyPhoto } from './images';
-import { decide, isLoud, isNews, nextPostTime, POST_KINDS, WITHOUT_SHOO } from './dispatch';
+import { decide, isLoud, isNews, nextPostTime, POST_KINDS } from './dispatch';
 import { jobAction, type CrowJobDefinition } from './jobs';
 import type { CrowStore, DueChat } from './store';
 
@@ -377,8 +377,8 @@ export class CrowScheduler {
       await afterSent?.(sent).catch((e) =>
         console.warn(`${LOG_PREFIX} ${POST_KINDS[post.kind].name} ${post.id} is sent, but what follows it failed:`, e),
       );
-      // A post without «Кш!» of its own leaves the button under the post before it
-      if (!WITHOUT_SHOO.includes(post.kind)) await this.moveShoo(chatId, post.id);
+      // A post without «Кш!» of its own leaves the button under the post before it, but the goodbye takes it off
+      if (POST_KINDS[post.kind].shoo !== 'leaves') await this.moveShoo(chatId, post.id);
       console.log(`${LOG_PREFIX} ${POST_KINDS[post.kind].name} ${post.id} sent to chat ${getLinkChatId(chatId)}`);
       return true;
     } catch (e) {
@@ -392,7 +392,7 @@ export class CrowScheduler {
     }
   }
 
-  /** «Кш!» lives under the chat's latest post: the post that had it loses it; a failure only leaves it there */
+  /** «Кш!» lives under the chat's latest post that has it: the post that had it loses it; a failure only leaves it there */
   private async moveShoo(chatId: number, postId: number) {
     const previous = await this.store.previousShooMessage(String(chatId), postId);
     if (previous === null) return;

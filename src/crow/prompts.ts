@@ -6,7 +6,7 @@ import { SNIPPETS_ASKED } from './conversation';
 import { MAX_ANNOUNCEMENT_LENGTH, MAX_STREAM_REMINDER_LENGTH, REMINDER_BEFORE_MS } from './events';
 import { JAB_LENGTH, MAX_INTERESTS, MAX_MEMES, MAX_TOPICS, PROFILE_WINDOW_DAYS } from './profile';
 import { QUIZ_ASKED } from './quiz';
-import { RELEASES_ASKED } from './releases';
+import { PLATFORMS, RELEASES_ASKED } from './releases';
 import { MAX_INTRO_LENGTH, MAX_VERDICT_LENGTH } from './weekly';
 import { daysLabel, plural } from './words';
 
@@ -646,6 +646,7 @@ export const FACTS_PROMPT = `Витягни факти для ворони-но�
 * Зберігай числа, ціни, відсотки, назви тестів, продукти та дати так, як вони наведені в джерелі.
 * Не створюй нових чисел через перерахунок або округлення.
 * Дати пиши українською: «22 вересня 2026».
+* Час дієслова — як у джерелі, від сьогоднішньої дати з запиту: те, що ще попереду, лишається майбутнім («вийде 29 вересня 2026»), а не «вийшла». Огляд чи враження від гри до її релізу реліз минулим не роблять.
 * Час доби, години й хвилини не перенось.
 * Не додавай дату публікації сторінки, автора, назву сайту або інші службові метадані.
 * Не додавай рекламні оцінки джерела на кшталт «революційний», «найкращий», якщо це не є прямою цитованою/атрибутованою заявою.
@@ -655,7 +656,7 @@ export const FACTS_PROMPT = `Витягни факти для ворони-но�
 
 Спочатку:
 
-1. що вийшло;
+1. що вийшло або вийде;
 2. що саме змінилося;
 3. ключова перевага або відмінність від попереднього;
 4. ціни;
@@ -1019,6 +1020,8 @@ export interface JabTarget {
   userId: string;
   name: string;
   topics: string[];
+  /** How she calls the cat in her talks, «вовче»; null — by name */
+  nickname: string | null;
 }
 
 export interface JabRequest {
@@ -1049,6 +1052,7 @@ export function jabPrompt(request: JabRequest): string {
 У чаті почалася твоя арка про новину нижче. Напиши до ${request.count} ${plural(request.count, ['персональної підколки', 'персональних підколок', 'персональних підколок'])} котам цього чату — тим, кого ця новина справді зачіпає за їхніми темами з профілю. Одна підколка — одному коту, і коти різні.
 
 * У тексті рівно один раз \`{cat}\` — там код поставить ім'я кота.
+* Кота, якого ти вже кличеш прізвиськом (воно в дужках біля імені), клич ним і тут: «🐦‍⬛ {cat}, вовче, …» — \`{cat}\` однаково лишається.
 * Текст починається з 🐦‍⬛; одне-два коротких речення, до ${JAB_LENGTH} символів.
 * Не пояснюй коту новину — встроми шпильку: його тема — мішень, новина — привід. Так звучить підколка: «🐦‍⬛ {cat}, твої агенти тепер палитимуть токени ще швидше. Прогрес!», «🐦‍⬛ {cat}, я знаю, ти вже поставив будильник на реліз. Не бреши.»
 * Про кота — лише те, що є в його темах; факти новини — лише з \`facts\`.
@@ -1065,7 +1069,7 @@ ${request.facts.map((f) => `${f.id}: ${f.text}`).join('\n')}
 ${request.opening}`,
     `# КОТИ ЧАТУ
 
-${request.targets.map((target) => `- userId ${target.userId} — ${target.name}: ${target.topics.join('; ')}`).join('\n')}`,
+${request.targets.map((target) => `- userId ${target.userId} — ${target.name}${target.nickname ? ` (прізвисько: «${target.nickname}»)` : ''}: ${target.topics.join('; ')}`).join('\n')}`,
     memorySection(request.recentPosts),
   ];
   return [...sections, ...correctionsSection(request.corrections)].join('\n\n');
@@ -1142,6 +1146,8 @@ export interface ConversationRequest {
   recentPosts: string[];
   /** What the chat's profile says of the cat */
   catTopics: string[];
+  /** How she has been calling the cat, «вовче»; null — by name */
+  nickname: string | null;
   maxLength: number;
   corrections?: string[];
 }
@@ -1153,6 +1159,7 @@ export const ConversationSchema = z.object({
   snippetIds: z.array(z.string()),
   postIds: z.array(z.string()),
   userTone: z.enum(['friendly', 'neutral', 'teasing', 'aggressive']),
+  nickname: z.string().nullable(),
 });
 
 export type ConversationResult = z.infer<typeof ConversationSchema>;
@@ -1196,7 +1203,8 @@ ${request.message.name} пише тобі — у відповідь на тві�
 * Дзеркаль тон кота: жартує — жартуй, огризається — відповідай гостро, але без образ.
 * Не повторюй того, що вже казала (\`recentPosts\`), і не переказуй пост, на який тобі відповіли.
 * snippetIds і postIds — лише ті Z і P, які ти справді сказала; нічого — порожні списки.
-* userTone — тон повідомлення кота: friendly, neutral, teasing або aggressive.`,
+* userTone — тон повідомлення кота: friendly, neutral, teasing або aggressive.
+* nickname — як ти звертаєшся до кота в цій відповіді, якщо не на ім'я: прізвисько, яким він сам себе назвав («я вовк» — «вовче»), або те, яким ти його влучно охрестила, у кличному відмінку, до трьох слів; безневинне — без образ і без особистого. Уже кличеш його якось — клич так і далі й повертай те саме, поки це до речі; назвався інакше — нове. Звертаєшся на ім'я чи ніяк — null.`,
     `# ПОВІДОМЛЕННЯ КОТА
 
 ${request.message.name}: ${request.message.text}`,
@@ -1208,6 +1216,9 @@ ${request.message.name}: ${request.message.text}`,
     memorySection(request.recentPosts),
   );
   if (request.catTopics.length > 0) sections.push(`# ПРО КОТА (з профілю чату)\n\n${list(request.catTopics, '')}`);
+  if (request.nickname) {
+    sections.push(`# ЯК ТИ КЛИЧЕШ КОТА\n\nТи кличеш ${request.message.name} «${request.nickname}»: це прізвисько вже прижилося в чаті.`);
+  }
   return [...sections, ...correctionsSection(request.corrections)].join('\n\n');
 }
 
@@ -1224,6 +1235,8 @@ export interface ToldRequest {
   story: { title: string; facts: { id: string; text: string }[] };
   /** What she said when she told it, and how long ago */
   told: { text: string; ago: string };
+  /** How she calls the cat in her talks, «вовче»; null — by name */
+  nickname: string | null;
   recentPosts: string[];
   maxLength: number;
   corrections?: string[];
@@ -1261,7 +1274,7 @@ ${request.message.name} ${brought} — а ти про цю новину вже �
 * Шпильку в кінці придумай свою, під це повідомлення: не шаблон, який пасує до будь-якої новини.
 * 1–2 короткі речення, до ${request.maxLength} символів; текст починається з 🐦‍⬛.
 * Новину не переказуй — чат її вже чув; нових фактів не додавай, числа — лише з фактів новини.
-* Не повторюй того, що вже казала (\`recentPosts\`).`,
+* Не повторюй того, що вже казала (\`recentPosts\`).${request.nickname ? `\n* Ти кличеш ${request.message.name} «${request.nickname}»: звертайся прізвиськом, а не на ім'я.` : ''}`,
     `# ПОВІДОМЛЕННЯ КОТА
 
 ${request.message.name}: ${request.message.text}`,
@@ -1767,19 +1780,20 @@ ${list(request.awards, '- (нікому)')}`,
  * The week's releases from the press's and the platforms' roundups of the week (docs/crow/behavior.md#the-release-radar):
  * the notable games only, with their platforms and days, as the materials give them
  */
-export const RELEASES_PROMPT = `Ти готуєш для ворони-новинарки телеграм-чату геймерів «Реліз-радар тижня»: які помітні ігри виходять цього тижня. Матеріали — добірки релізів тижня від преси й платформ.
+export const RELEASES_PROMPT = `Ти готуєш для ворони-новинарки телеграм-чату геймерів «Реліз-радар тижня»: які помітні ігри виходять цього тижня. Матеріали — добірки релізів тижня від преси й платформ, кожна з міткою [R1], [R2]…, і магазин Nintendo, без мітки.
 
-Поверни releases — до ${RELEASES_ASKED} найпомітніших релізів тижня, найбільші першими: великі ігри, продовження відомих серій, ремастери й порти відомих ігор, ігри, про які пишуть окремо. Дрібні інді, DLC, бандли й видання-перевидання без нового пропускай.
+Поверни releases — до ${RELEASES_ASKED} найпомітніших релізів тижня, найбільші першими: великі ігри, продовження відомих серій, ремастери й порти відомих ігор, ігри, про які пишуть окремо. Дрібні інді, DLC, бандли й видання-перевидання без нового пропускай. Магазин Nintendo перелічує всі ігри тижня, дрібні теж: з нього бери лише помітні, як із добірок преси.
 
 Для кожного:
 - game — назва гри, як у матеріалах;
-- platforms — платформи коротко й через кому: PS5, PS4, Xbox Series X|S, Switch 2, Switch, PC; гра з добірок кількох платформ — усі ці платформи;
+- platforms — усі платформи, які матеріали дають грі: гра з добірок кількох платформ, магазин Nintendo теж, — на всіх;
+- sources — мітки добірок, що називають гру: ["R1", "R3"]; гра лише з магазину Nintendo — [];
 - date — день виходу, YYYY-MM-DD; лише той, що прямо названий у матеріалах, — не вгадуй.
 
 Нічого не вигадуй: лише ігри й дні з матеріалів. Тиждень, про який ідеться, наведено в запиті.`;
 
 export const ReleasesSchema = z.object({
-  releases: z.array(z.object({ game: z.string(), platforms: z.string(), date: z.string() })),
+  releases: z.array(z.object({ game: z.string(), platforms: z.array(z.enum(PLATFORMS)), date: z.string(), sources: z.array(z.string()) })),
 });
 
 export type ReleasesResult = z.infer<typeof ReleasesSchema>;

@@ -36,8 +36,10 @@ export const CHAT_REPLIES_PER_HOUR = 12;
 export const THREAD_EXCHANGES = 4;
 export const FLY_OFF_TEXT = '🐦‍⬛ Все, я полетіла, у мене справи.';
 const MAX_TALK_LENGTH = 400;
-/** The chat's messages before the one answered, for the context */
-const RECENT_CHAT = 10;
+/** The chat's messages before the one answered, for the context: enough for what a cat said of himself a while ago */
+const RECENT_CHAT = 25;
+/** A nickname as she may keep it: a word or three of letters, 30 characters at most */
+const NICKNAME = /^(?=.{2,30}$)[\p{L}'’-]+(?: [\p{L}'’-]+){0,2}$/u;
 const MEMORY_POSTS = 8;
 /** Stories a call that names none of them is given, the latest first */
 const REPLY_STORIES = 2;
@@ -245,7 +247,15 @@ export interface WrittenTalk {
   snippetIds: string[];
   postIds: string[];
   userTone: ConversationResult['userTone'] | null;
+  /** How she called the cat, when not by name; null — by name, or she kept quiet */
+  nickname: string | null;
   attempts: Attempt[];
+}
+
+/** A nickname as the model gave it, if it is one: a few words of letters, not the cat's name */
+function cleanNickname(nickname: string | null, name: string): string | null {
+  const cleaned = nickname?.replace(/[«»"“”]/g, '').replace(/\s+/g, ' ').trim() ?? '';
+  return NICKNAME.test(cleaned) && cleaned.toLowerCase() !== name.trim().toLowerCase() ? cleaned : null;
 }
 
 /**
@@ -274,6 +284,7 @@ export async function writeTalk(
     snippetIds: known(result.snippetIds, details),
     postIds: known(result.postIds, planned),
     userTone: result.userTone ?? null,
+    nickname: spoke ? cleanNickname(result.nickname, request.message.name) : null,
     attempts,
   };
 }
@@ -298,6 +309,8 @@ type ConversationStore = Pick<
   | 'chatMessagesBefore'
   | 'chatMessage'
   | 'profile'
+  | 'nickname'
+  | 'setNickname'
   | 'createTalkPost'
   | 'materialScores'
 >;
@@ -490,14 +503,19 @@ export class CrowConversation {
       }),
     }));
 
-    const optedOut = await this.store.optedOut(message.chatId);
-    const recentChat = (await this.store.chatMessagesBefore(message.chatId, message.messageId, RECENT_CHAT))
-      .filter((line) => !optedOut.has(line.userId))
-      .map((line) => `${line.name}: ${line.text}`);
-    const recentPosts = (await this.store.recentPosts(message.chatId, MEMORY_POSTS)).map((post) => memoryLine(post, now));
-    const thread = post ? await this.thread(message.chatId, post) : [];
-    const profile = optedOut.has(message.userId) ? null : await this.store.profile(message.chatId);
-    const catTopics = profile?.members.find((member) => member.userId === message.userId)?.topics ?? [];
+    const [optedOut, chatLines, memory, thread, profile, nickname] = await Promise.all([
+      this.store.optedOut(message.chatId),
+      this.store.chatMessagesBefore(message.chatId, message.messageId, RECENT_CHAT),
+      this.store.recentPosts(message.chatId, MEMORY_POSTS),
+      post ? this.thread(message.chatId, post) : [],
+      this.store.profile(message.chatId),
+      this.store.nickname(message.chatId, message.userId),
+    ]);
+    // A cat who asked her to leave them alone is out of the profile; the store keeps no nickname of theirs
+    const leftAlone = optedOut.has(message.userId);
+    const recentChat = chatLines.filter((line) => !optedOut.has(line.userId)).map((line) => `${line.name}: ${line.text}`);
+    const recentPosts = memory.map((line) => memoryLine(line, now));
+    const catTopics = leftAlone ? [] : (profile?.members.find((member) => member.userId === message.userId)?.topics ?? []);
     const request: ConversationRequest = {
       kind,
       message: { name: message.name, text: message.text },
@@ -506,6 +524,7 @@ export class CrowConversation {
       stories,
       recentPosts,
       catTopics,
+      nickname,
       maxLength: MAX_TALK_LENGTH,
     };
     const allowed = allowedNumbers(
@@ -533,9 +552,10 @@ export class CrowConversation {
     );
     const storyId = told?.storyId ?? (materials.length === 1 ? materials[0].storyId : (post?.storyIds[0] ?? null));
     await this.post(message, { kind, text: written.text, storyId, depth, snippetIds, postIds });
+    if (written.nickname) await this.store.setNickname(message.chatId, message.userId, written.nickname, now);
     console.log(
       `${LOG_PREFIX} ${what} ${message.name} in chat ${chat}: ${snippetIds.length} details, ${postIds.length} posts told ahead, ` +
-        `tone ${written.userTone} ($${costUsd.toFixed(4)})`,
+        `tone ${written.userTone}${written.nickname ? `, calls them «${written.nickname}»` : ''} ($${costUsd.toFixed(4)})`,
     );
   }
 
@@ -555,7 +575,11 @@ export class CrowConversation {
       return;
     }
     const ago = agoLabel(now.getTime() - story.sentAt.getTime());
-    const recentPosts = (await this.store.recentPosts(message.chatId, MEMORY_POSTS)).map((post) => memoryLine(post, now));
+    const [memory, nickname] = await Promise.all([
+      this.store.recentPosts(message.chatId, MEMORY_POSTS),
+      this.store.nickname(message.chatId, message.userId),
+    ]);
+    const recentPosts = memory.map((post) => memoryLine(post, now));
     const request: ToldRequest = {
       message: { name: message.name, text: message.text },
       origin: message.origin,
@@ -564,6 +588,7 @@ export class CrowConversation {
       sourceWasFaster: message.forwardedAt !== null && message.forwardedAt < story.sentAt,
       story: { title: story.title, facts: story.facts },
       told: { text: story.text, ago },
+      nickname,
       recentPosts,
       maxLength: MAX_TOLD_LENGTH,
     };

@@ -55,6 +55,7 @@ forwards are heard by meaning too (EmbeddingGemma). GIFs come later.
 | [countdowns.ts](../../src/crow/countdowns.ts) | The countdowns to big releases (`COUNTDOWNS`): the Fibonacci marks and their slots in the chat's zone, the line under the arcs, the posts' checks, the `countdowns` job |
 | [releases.ts](../../src/crow/releases.ts) | The release radar: the week's roundups, its rows and its table, her word and its checks, the `releases` job |
 | [sources/gameSources.ts](../../src/crow/sources/gameSources.ts), [freebies.ts](../../src/crow/sources/freebies.ts), [psPlus.ts](../../src/crow/sources/psPlus.ts), [gamePass.ts](../../src/crow/sources/gamePass.ts) | The game sources and their publishers; Epic's and GamerPower's giveaways; the PlayStation Blog's PS Plus with its games and the games leaving the Ukrainian store's catalog; Game Pass's lists |
+| [sources/nintendoStore.ts](../../src/crow/sources/nintendoStore.ts) | The week's Switch 2 and Switch games from Nintendo's European store, for the release radar |
 | [sources/psStoreHash.ts](../../src/crow/sources/psStoreHash.ts), [graphqlDocument.ts](../../src/crow/sources/graphqlDocument.ts) | The hash of the PS Store's persisted query, found in its script bundles; the GraphQL parser and graphql-js 14's printing it takes |
 | [toldYou.ts](../../src/crow/toldYou.ts) | «Я ж казала»: the links compared, the story a forward or a link brings back, its checks; the UPD to a rumor that came true |
 | [weekly.ts](../../src/crow/weekly.ts) | The weekly digest: its Friday evening, the week's shiniest news, the winner's checks, the table and the vote, the `weekly` job |
@@ -83,7 +84,8 @@ forwards are heard by meaning too (EmbeddingGemma). GIFs come later.
 
 Unit tests cover the crow's decisions, as pure functions next to the code: the gaps of an arc (with a
 seeded generator), which messages a chat gets, quiet hours across the change to winter time, which post
-goes next and within which limits, the rich posts, the menu and its callback data, when a job runs, the
+goes next and within which limits, where «Кш!» is — taken over, left, taken off by the goodbye, and the sending
+that moves it on a fake store — the rich posts, the menu and its callback data, when a job runs, the
 parsing of feeds and sitemaps and of the JSON and Markdown sources (trimmed real ones), topic keys, when a story is written, the outline and
 the checks of an arc, the roster update, the daily budget; when a chat's morning comes (across midnight and
 the change of time), which news a digest tells, its checks and its one rewrite, the `morning` job on a fake
@@ -104,7 +106,8 @@ table, Game Pass's lists, the quizzes and the reminders with their checks, the c
 last day's two slots across the change of time, the line under the arcs, the job — the size of the opening, her
 birthday — its day and the 29th of February, the year's figures and rows, the awards and who gets none, the post,
 the word's rewrite, the job once a year — the release radar — its Monday, its rows, its word and its
-job; the
+job, the platforms of the roundups a release cites added to its row, Nintendo's store read with the roundups, one game for its Switch and Switch 2 versions, the week without it
+when the store fails; the
 placeholders of a post's text and how the memory reads them; «я ж казала» — the links compared, the story a
 forward or a link brings back, the faster channel, once per story, the gap — and the UPD's checks; the weekly
 digest's Friday evening across the change of time, the ranking, the winner's checks, the table, the vote and

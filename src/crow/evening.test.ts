@@ -15,9 +15,9 @@ describe('eveningAt', () => {
     return found && { quietStart: found.quietStart.toISOString(), dayStart: found.dayStart.toISOString() };
   };
 
-  it('opens 35 minutes before the quiet hours and lasts until they begin, with the day since the morning', () => {
-    assert.equal(evening('2026-09-27T19:24:00Z'), null); // 22:24 in Kyiv
-    assert.deepEqual(evening('2026-09-27T19:25:00Z'), {
+  it('opens 31 minutes before the quiet hours and lasts until they begin, with the day since the morning', () => {
+    assert.equal(evening('2026-09-27T19:28:00Z'), null); // 22:28 in Kyiv
+    assert.deepEqual(evening('2026-09-27T19:29:00Z'), {
       quietStart: '2026-09-27T20:00:00.000Z',
       dayStart: '2026-09-27T07:00:00.000Z',
     });
@@ -38,9 +38,9 @@ describe('eveningAt', () => {
   });
 
   it('finds quiet hours that begin just after midnight, and the morning before them', () => {
-    // 00:30–09:00: at 23:59 in Kyiv the quiet hours begin tomorrow, the day began this morning
-    const found = eveningAt(at('2026-09-27T20:59:00Z'), KYIV, 30, 540);
-    assert.equal(found?.quietStart.toISOString(), '2026-09-27T21:30:00.000Z');
+    // 00:20–09:00: at 23:59 in Kyiv the quiet hours begin tomorrow, the day began this morning
+    const found = eveningAt(at('2026-09-27T20:59:00Z'), KYIV, 20, 540);
+    assert.equal(found?.quietStart.toISOString(), '2026-09-27T21:20:00.000Z');
     assert.equal(found?.dayStart.toISOString(), '2026-09-27T06:00:00.000Z');
   });
 
@@ -107,7 +107,7 @@ const post = (text: string, iso: string): RememberedPost => ({ text, sentAt: at(
 const day = [post('🐦‍⬛ Хвіст арки', '2026-09-27T15:00:00Z'), post('🐦‍⬛🐦‍⬛🐦‍⬛ Прильот', '2026-09-27T09:00:00Z')];
 
 describe('EveningGoodbyes', () => {
-  it('plans the goodbye 20 minutes before the quiet hours, dropped if it cannot go before they begin', async () => {
+  it('plans the goodbye 16 minutes before the quiet hours, dropped if it cannot go before they begin', async () => {
     const { store, goodbyes } = fakeStore(day);
     const model = fakeModel('🐦‍⬛ Все, коти, на сьогодні відпускаю.');
     const job = new EveningGoodbyes(store, model.write, () => at('2026-09-27T19:30:00Z')).job();
@@ -115,7 +115,7 @@ describe('EveningGoodbyes', () => {
     assert.deepEqual(goodbyes, [
       {
         text: '🐦‍⬛ Все, коти, на сьогодні відпускаю.',
-        notBefore: at('2026-09-27T19:40:00Z'),
+        notBefore: at('2026-09-27T19:44:00Z'),
         expiresAt: at('2026-09-27T20:00:00Z'),
       },
     ]);

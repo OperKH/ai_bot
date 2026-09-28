@@ -35,7 +35,7 @@ import {
   snoozeLeft,
   TOASTS,
 } from '../../crow/crowMenu';
-import { WITHOUT_SHOO } from '../../crow/dispatch';
+import { POST_KINDS } from '../../crow/dispatch';
 import { CrowConversation, heardMessage } from '../../crow/conversation';
 import type { CrowJobDefinition } from '../../crow/jobs';
 import { CrowLlm } from '../../crow/crowLlm';
@@ -47,6 +47,7 @@ import { ChatProfiles, JabWriter } from '../../crow/profile';
 import { CrowPipeline } from '../../crow/pipeline';
 import { AI_SOURCES } from '../../crow/sources/aiSources';
 import { GAME_SOURCES } from '../../crow/sources/gameSources';
+import { nintendoReleases } from '../../crow/sources/nintendoStore';
 import { Birthdays, type CatNames } from '../../crow/birthday';
 import { Countdowns } from '../../crow/countdowns';
 import { dropOldImages } from '../../crow/images';
@@ -193,10 +194,11 @@ export class CrowCommand extends Command {
       new ChatProfiles(this.store, (messages) => llm.profile(messages)).job(),
       new Countdowns(this.store, (request) => llm.countdown(request)).job(),
       new Birthdays(this.store, (request) => llm.birthday(request), (chatId, userIds) => this.catNames(chatId, userIds)).job(),
-      new ReleaseRadar(this.store, {
-        releases: (week, materials) => llm.releases(week, materials),
-        radar: (request) => llm.radar(request),
-      }).job(),
+      new ReleaseRadar(
+        this.store,
+        { releases: (week, materials) => llm.releases(week, materials), radar: (request) => llm.radar(request) },
+        nintendoReleases,
+      ).job(),
       {
         name: 'cleanup',
         nextRun: (startedAt) => new Date(startedAt.getTime() + 24 * HOUR),
@@ -263,7 +265,7 @@ export class CrowCommand extends Command {
 
   private async sendPost(post: OutgoingPost): Promise<SentPost> {
     const sent = await this.bot.api.sendRichMessage(post.chatId, post.message, {
-      ...(WITHOUT_SHOO.includes(post.kind) ? {} : { reply_markup: shooKeyboard(post.postId) }),
+      ...(POST_KINDS[post.kind].shoo === 'carries' ? { reply_markup: shooKeyboard(post.postId) } : {}),
       disable_notification: !post.loud,
       ...(post.replyToMessageId === null
         ? {}

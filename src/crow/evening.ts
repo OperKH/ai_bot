@@ -11,7 +11,7 @@ const LOG_PREFIX = '[Crow]';
 const MINUTE = 60_000;
 
 /** The goodbye goes this long before the quiet hours begin; after it the crow keeps quiet till then */
-export const GOODBYE_BEFORE_QUIET_MS = 20 * MINUTE;
+export const GOODBYE_BEFORE_QUIET_MS = 16 * MINUTE;
 /** It is written within this long before it is due, so the dispatcher finds it waiting */
 const GOODBYE_LEAD_MS = 15 * MINUTE;
 /** A day with fewer posts than this is not worth a goodbye */

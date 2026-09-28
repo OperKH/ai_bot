@@ -7,6 +7,7 @@ import {
   CrowEvent,
   CrowJob,
   CrowMemberOptout,
+  CrowNickname,
   CrowPoll,
   CrowPollVote,
   CrowPost,
@@ -46,7 +47,7 @@ import type { TalkHistory } from './conversation';
 import type { MenuSettings } from './crowMenu';
 import { readableText } from './crowMessage';
 import type { ProfileMessage } from './profile';
-import { type DispatchCandidate, LIMITED_KINDS, type SentCounts, WITHOUT_SHOO } from './dispatch';
+import { type DispatchCandidate, LEAVES_SHOO, LIMITED_KINDS, type SentCounts, shooMessage } from './dispatch';
 import { activation, type PlannedPost } from './planning';
 import { contentHash, type FeedItem, type GameListing } from './sources/feed';
 import type { SourceDefinition } from './sources/source';
@@ -65,6 +66,8 @@ const SOURCE_RETENTION_MS = 180 * 24 * HOUR;
 const STORY_VECTOR_RETENTION_MS = 90 * 24 * HOUR;
 /** An entry's vector is kept this long: a game news is gathered within 72 hours, a forward looks back 30 days */
 const ENTRY_VECTOR_RETENTION_MS = 90 * 24 * HOUR;
+/** A nickname the crow gave a cat is forgotten when she has not called them so this long */
+const NICKNAME_KEPT_MS = 30 * 24 * HOUR;
 /** The cats who pressed «Кш!» count together this long, whichever posts they pressed it under */
 const SHOO_WINDOW_MS = HOUR;
 /**
@@ -837,7 +840,8 @@ export class CrowStore {
   async recentGoodbyes(chatId: string, limit: number): Promise<string[]> {
     const rows = await this.posts.find({
       select: { text: true },
-      where: { chatId, kind: 'goodbye', status: 'sent' },
+      // The unsent posts of the chat come first in its index by `sentAt` descending: skipped at the index
+      where: { chatId, kind: 'goodbye', status: 'sent', sentAt: Not(IsNull()) },
       order: { sentAt: 'DESC' },
       take: limit,
     });
@@ -930,8 +934,33 @@ export class CrowStore {
     });
   }
 
+  /** How the crow calls a cat of the chat; the cleanup forgets one she has not used for a month */
+  async nickname(chatId: string, userId: string): Promise<string | null> {
+    return (await this.dataSource.getRepository(CrowNickname).findOneBy({ chatId, userId }))?.nickname ?? null;
+  }
+
+  /** How the crow calls the cats of the chat, by their ids */
+  async nicknames(chatId: string): Promise<Map<string, string>> {
+    const rows = await this.dataSource.getRepository(CrowNickname).findBy({ chatId });
+    return new Map(rows.map((row) => [row.userId, row.nickname]));
+  }
+
   /**
-   * «🙅 Не чіпай мене»: the cat leaves the profile at once, and the jabs planned at
+   * She called the cat so now: a new nickname takes the old one's place. A cat who pressed «🙅 Не чіпай мене»
+   * gets none, even one she called so while the button was pressed
+   */
+  async setNickname(chatId: string, userId: string, nickname: string, now: Date): Promise<void> {
+    await this.dataSource.query(
+      `INSERT INTO crow_nickname ("chatId", "userId", nickname, "usedAt")
+       SELECT $1, $2, $3, $4
+       WHERE NOT EXISTS (SELECT 1 FROM crow_member_optout optout WHERE optout."chatId" = $1 AND optout."userId" = $2)
+       ON CONFLICT ("chatId", "userId") DO UPDATE SET nickname = EXCLUDED.nickname, "usedAt" = EXCLUDED."usedAt"`,
+      [chatId, userId, nickname, now],
+    );
+  }
+
+  /**
+   * «🙅 Не чіпай мене»: the cat leaves the profile at once, loses the nickname, and the jabs planned at
    * them are called off. Pressed again, the crow may touch them from the next profile on.
    */
   async setOptedOut(chatId: string, userId: string, optedOut: boolean, now: Date): Promise<void> {
@@ -942,6 +971,7 @@ export class CrowStore {
     }
     await this.dataSource.transaction(async (em) => {
       await em.createQueryBuilder().insert().into(CrowMemberOptout).values({ chatId, userId }).orIgnore().execute();
+      await em.delete(CrowNickname, { chatId, userId });
       await em.query(
         `UPDATE crow_chat_profile SET profile = jsonb_set(profile, '{members}', COALESCE(
            (SELECT jsonb_agg(member) FROM jsonb_array_elements(profile->'members') member WHERE member->>'userId' <> $2),
@@ -1642,20 +1672,21 @@ export class CrowStore {
   }
 
   /**
-   * The message that carried «Кш!» before `postId` came: the chat's latest post
-   * but that one, of the kinds that have the button
+   * The message that carried «Кш!» before `postId` came: the chat's latest post but that one, of the kinds
+   * that do not leave the button where it is — none since an evening goodbye, which took it off
    */
   async previousShooMessage(chatId: string, postId: number): Promise<number | null> {
-    const [row] = await this.dataSource.query<{ tgMessageId: string }[]>(
-      `SELECT "tgMessageId" FROM crow_post
-       WHERE "chatId" = $1 AND id <> $2 AND status = 'sent' AND "tgMessageId" IS NOT NULL AND kind <> ALL($3::text[])
+    const rows = await this.dataSource.query<{ tgMessageId: string; kind: CrowPostKind }[]>(
+      `SELECT "tgMessageId", kind FROM crow_post
+       WHERE "chatId" = $1 AND id <> $2 AND "sentAt" IS NOT NULL AND status = 'sent' AND "tgMessageId" IS NOT NULL
+         AND kind <> ALL($3::text[])
        ORDER BY "sentAt" DESC LIMIT 1`,
-      [chatId, postId, WITHOUT_SHOO],
+      [chatId, postId, LEAVES_SHOO],
     );
-    return row ? Number(row.tgMessageId) : null;
+    return shooMessage(rows.map((row) => ({ kind: row.kind, tgMessageId: Number(row.tgMessageId) })));
   }
 
-  /** The message that carries «Кш!» now: the chat's latest post of the kinds that have the button */
+  /** The message that carries «Кш!» now, if any: none after an evening goodbye */
   async latestShooMessage(chatId: string): Promise<number | null> {
     return this.previousShooMessage(chatId, 0);
   }
@@ -2180,6 +2211,7 @@ export class CrowStore {
     await this.dataSource.query(
       `DELETE FROM crow_poll_vote vote WHERE NOT EXISTS (SELECT 1 FROM crow_poll poll WHERE poll.id = vote."pollId")`,
     );
+    await this.dataSource.getRepository(CrowNickname).delete({ usedAt: LessThan(new Date(now.getTime() - NICKNAME_KEPT_MS)) });
     const sources = new Date(now.getTime() - SOURCE_RETENTION_MS);
     await this.dataSource.query(`DELETE FROM crow_event WHERE "startsAt" < $1`, [sources]);
     const vectors = new Date(now.getTime() - STORY_VECTOR_RETENTION_MS);

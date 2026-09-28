@@ -15,7 +15,7 @@ import {
   profileInput,
   writeJabs,
 } from './profile';
-import type { JabRequest, JabResult } from './prompts';
+import { type JabRequest, type JabResult, jabPrompt } from './prompts';
 
 const NOW = new Date('2026-09-27T12:00:00Z');
 
@@ -105,8 +105,8 @@ const request: JabRequest = {
   facts: [{ id: 'F1', text: 'на 20% дешевший' }],
   opening: '🐦‍⬛🐦‍⬛🐦‍⬛ Прильот',
   targets: [
-    { userId: '1', name: 'Олег', topics: ['вісім агентів у Claude Code'] },
-    { userId: '2', name: 'Саша', topics: ['Switch 2'] },
+    { userId: '1', name: 'Олег', topics: ['вісім агентів у Claude Code'], nickname: null },
+    { userId: '2', name: 'Саша', topics: ['Switch 2'], nickname: null },
   ],
   count: 2,
   recentPosts: [],
@@ -174,6 +174,7 @@ describe('JabWriter', () => {
   const store = (optedOut: string[]) => ({
     profile: async () => PROFILE,
     optedOut: async () => new Set(optedOut),
+    nicknames: async () => new Map([['1', 'вовче']]),
     recentPosts: async () => [],
   });
 
@@ -181,9 +182,10 @@ describe('JabWriter', () => {
     const model = fakeModel([{ userId: '1', text: '🐦‍⬛ {cat}, агенти.' }]);
     const { jabs } = await new JabWriter(store(['2']), model.write).jabs('-100', 'bold', story, NOW);
     assert.deepEqual(
-      model.requests[0].targets.map((target) => target.userId),
-      ['1'],
+      model.requests[0].targets.map((target) => [target.userId, target.nickname]),
+      [['1', 'вовче']],
     );
+    assert.ok(jabPrompt(model.requests[0]).includes('«вовче»'));
     assert.equal(model.requests[0].count, 1);
     assert.deepEqual(jabs, [
       { text: '🐦‍⬛ {cat}, агенти.', mention: { userId: '1', name: 'Олег', username: 'oleg', ping: true } },

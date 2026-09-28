@@ -8,6 +8,7 @@ export * from './MediaRepeat.entity';
 export * from './CrowChat.entity';
 export * from './CrowChatProfile.entity';
 export * from './CrowMemberOptout.entity';
+export * from './CrowNickname.entity';
 export * from './CrowSubscription.entity';
 export * from './CrowStory.entity';
 export * from './CrowStoryMessage.entity';

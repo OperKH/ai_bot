@@ -106,6 +106,11 @@ export function dateLabel(date: Temporal.PlainDate): string {
   return `${date.day} ${MONTHS_OF[date.month - 1]}`;
 }
 
+/** A date with its year, as a request tells the model today: «28 вересня 2026» */
+export function yearDateLabel(date: Temporal.PlainDate): string {
+  return `${dateLabel(date)} ${date.year}`;
+}
+
 const WEEKDAY_SHORT = ['пн', 'вт', 'ср', 'чт', 'пт', 'сб', 'нд'] as const;
 
 /** A date with its weekday, as a table of days shows it: «вт, 29 вересня» */

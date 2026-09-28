@@ -1,6 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { decide, type DispatchCandidate, type DispatchChat, isLoud, LIMITED_KINDS, nextPostTime } from './dispatch';
+import type { CrowPostKind } from '../entity/CrowPost.entity';
+import { decide, type DispatchCandidate, type DispatchChat, isLoud, LIMITED_KINDS, nextPostTime, shooMessage } from './dispatch';
 
 const NOW = new Date('2026-09-26T12:00:00Z'); // 15:00 in Kyiv
 const minutesAgo = (minutes: number) => new Date(NOW.getTime() - minutes * 60_000);
@@ -169,5 +170,27 @@ describe('isLoud', () => {
   it('rings for the UPD to a confirmed rumor as for its news', () => {
     assert.equal(isLoud({ isFirst: false, importance: 2 }, 'bold', 'update'), true);
     assert.equal(isLoud({ isFirst: false, importance: 2 }, 'restrained', 'update'), false);
+  });
+});
+
+describe('shooMessage', () => {
+  // The chat's sent posts, newest first, as the store gives them
+  const posts = (...kinds: CrowPostKind[]) => kinds.map((kind, i) => ({ kind, tgMessageId: 100 - i }));
+
+  it('is the latest post that carries the button, past those that leave it', () => {
+    assert.equal(shooMessage(posts('arc')), 100);
+    assert.equal(shooMessage(posts('reply', 'quiz', 'arc')), 98, 'an answer to a call and a poll leave it under the arc');
+    assert.equal(shooMessage([]), null);
+  });
+
+  it('is gone after the evening goodbye, which takes it off the post before', () => {
+    assert.equal(shooMessage(posts('arc', 'digest')), 100, 'the goodbye, its own row left out, takes it off the arc before it');
+    assert.equal(shooMessage(posts('goodbye', 'arc')), null, 'the morning finds none to take');
+    assert.equal(shooMessage(posts('reply', 'goodbye', 'arc')), null, 'nor after an answer to a cat who called her');
+  });
+
+  it('is under her word in a talk after the goodbye, for the morning to take off', () => {
+    assert.equal(shooMessage(posts('chime', 'goodbye', 'arc')), 100);
+    assert.equal(shooMessage(posts('told', 'reply', 'goodbye')), 100);
   });
 });

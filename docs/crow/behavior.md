@@ -48,8 +48,9 @@ lives in `PERSONA_PROMPT` ([prompts.ts](../../src/crow/prompts.ts)); the traits 
 - Which posts ring: a restrained crow rings only for the news of mega stories, a bold one for the news of
   every story, a pestering one for every post. The rest go silently.
 - «🔇 Кш!» is under the chat's latest post only: every new post takes the button over from the one before
-  (the crow's introduction, her evening goodbye, her answer to a cat who called her and the polls — a bet, a
-  quiz — have none, and leave it where it was). The first cat to press it gets a warning;
+  (the crow's introduction, her answer to a cat who called her and the polls — a bet, a quiz — have none, and
+  leave it where it was). Her evening goodbye has none either, and takes it off the post before: nothing of the
+  queue follows it till the morning, and the morning's first post finds no button to take. The first cat to press it gets a warning;
   a second cat within the hour — a third when she is pestering — under the same post or a newer one sends the
   crow away for an hour, and she says so under the post: «Двоє котів проти однієї ворони — сміливо…», or
   «Троє котів… це вже зграя… Полетіла на годину». A cat pressing twice counts once; while she keeps quiet
@@ -83,7 +84,7 @@ the day's hero in a word or a promise to change her mind, never a new fact ([eve
 No arc ends with a farewell of its own: an arc's last gap is the longest, and it mostly ran out in the night,
 so the goodbye came at ten in the morning.
 
-- It goes **20 minutes before the chat's quiet hours**, in its zone, and only after a day with two posts of
+- It goes **16 minutes before the chat's quiet hours**, in its zone, and only after a day with two posts of
   the crow at least; after it the crow keeps quiet till the quiet hours begin — the rest of the arcs goes on
   in the morning. A goodbye that cannot go before the quiet hours begin is dropped.
 - It is written 15 minutes before it is due (`OPENAI_CROW_TEXT_MODEL`, `Write Crow Goodbye`, ≈ $0.006 on
@@ -160,14 +161,20 @@ says «я ж казала» to it ([below](#i-told-you-so)).
   told in a chat is not offered there again; a post of the arc told in a talk leaves the queue
   (`consumed`), and the arc goes on without it. A story whose store failed is still named by its hero.
 - **The answer** is one call of the talk model (`Write Crow Reply`, `Write Crow Chime-In`): the cat's
-  message and what it answers, the chat's last ten messages, the stories with their facts, details and
-  waiting posts, what she said in the chat lately, and the cat's topics from the profile. Back come
-  whether she speaks, the text, the details and posts it told, and the cat's tone (only logged for now:
-  the GIFs come later). Checked as an arc message is — every number from what she was given, no time of
+  message and what it answers, the chat's last 25 messages, the stories with their facts, details and
+  waiting posts, what she said in the chat lately, the cat's topics from the profile and the nickname she
+  calls them. Back come whether she speaks, the text, the details and posts it told, the cat's tone (only
+  logged for now: the GIFs come later) and how she called the cat when not by name. Checked as an arc message is — every number from what she was given, no time of
   day in digits, no forbidden topics, up to 400 characters — rewritten once, then dropped. The daily
   budget does not count the talks: their own limits hold them.
+- **Nicknames:** a cat who called himself a wolf becomes «вовче» — the name he gave himself, or one she stuck on
+  him, a word or three of letters and not his own name ([CrowNickname](../../src/entity/CrowNickname.entity.ts)).
+  Her next talks with that cat carry it — so do her «я ж казала», which calls him by it instead of his name, and her
+  jabs, which add it to his name, the mention that rings him — and the model returns it while she keeps calling him so; a cat she has not
+  called so for 30 days is called by name again, and a new nickname takes the old one's place.
 - «🙅 Не чіпай мене» keeps her out of that cat's talk: she answers them when they call her, but does not
-  chime in on them, and their messages are left out of what the model reads.
+  chime in on them, and their messages are left out of what the model reads; their nickname goes, and they get
+  no new one.
 
 ## I told you so
 
@@ -355,9 +362,16 @@ On Monday, from 11:00 of the chat's zone, a chat that hears 📅 Реліз-ра
 ([releases.ts](../../src/crow/releases.ts)): «📅 Реліз-радар тижня», her word on the biggest of them, and a table —
 «Гра | Де | Коли», a game a row, «вт, 29 вересня», eight at most. The model reads them from the roundups of the
 week published before it — Xbox Wire's «Next Week on XBOX» whole, with every game and its day, and the leads of
-Push Square's and Pure Xbox's weekly guides, whose pages the bot cannot read (`Extract Crow Releases`,
-`OPENAI_CROW_MODEL`); each roundup is labelled with its platforms, so a game of several is shown on all. A day
-the roundups do not name is not guessed, and a release outside the week is left out. Her word (`Write Crow
+Push Square's and Pure Xbox's weekly guides, whose pages the bot cannot read — and, since the press has no weekly
+roundup for the Switch, the week of Nintendo's European store: every Switch 2 and Switch game of the week with its
+day, the forty most downloaded and pre-ordered of them, the model keeping the notable ones (`Extract Crow Releases`,
+`OPENAI_CROW_MODEL`); each roundup is labelled — `[R1]`… — with its platforms, so a game of several is shown on
+all, and a release names its platforms from a fixed list and the labels of the roundups that name it: the code adds
+the platforms of those roundups — and of its game in Nintendo's store, by the name — which the model drops now and
+then, the more roundups a game is in the likelier; Xbox Wire's feature, for the Xbox and its PC store, gives its
+games no platforms of their own. A day
+the roundups do not name is not guessed, and a release outside the week is left out. The store not answering
+leaves the week without the Switch, not without its radar. Her word (`Write Crow
 Release Radar`, the text model) holds to the table's numbers, or a plain one goes instead. One post a week for
 every chat, prepared once; a week without roundups goes without. It is not news: the limits neither count nor
 stop it.

@@ -21,7 +21,7 @@ import {
   threadTurn,
   writeTalk,
 } from './conversation';
-import type { ConversationRequest, ConversationResult, ToldRequest, ToldResult } from './prompts';
+import { type ConversationRequest, type ConversationResult, type ToldRequest, type ToldResult, toldPrompt } from './prompts';
 import type { NewTalkPost, RepliedPost, StoryMaterial, TalkChat, TalkedStory } from './store';
 import type { ToldStory } from './toldYou';
 
@@ -202,6 +202,7 @@ const baseRequest: ConversationRequest = {
   stories: [story()],
   recentPosts: [],
   catTopics: [],
+  nickname: null,
   maxLength: 400,
 };
 
@@ -211,6 +212,7 @@ const answer = (patch: Partial<ConversationResult> = {}): ConversationResult => 
   snippetIds: [],
   postIds: [],
   userTone: 'friendly',
+  nickname: null,
   ...patch,
 });
 
@@ -226,6 +228,18 @@ function fakeModel(...answers: ConversationResult[]) {
 
 describe('writeTalk', () => {
   const allowed = allowedNumbers('1 мільйон', '20%', '30%', '5.5');
+
+  it('keeps a nickname of a few words of letters, not the cat’s own name', async () => {
+    const nickname = async (given: string | null) =>
+      (await writeTalk(fakeModel(answer({ nickname: given })).write, baseRequest, allowed)).nickname;
+    assert.equal(await nickname('«сірий вовче»'), 'сірий вовче');
+    assert.equal(await nickname('Олег'), null);
+    assert.equal(await nickname('агент 007'), null);
+    assert.equal(await nickname('дуже довге прізвисько з чотирьох слів'), null);
+    assert.equal(await nickname(null), null);
+    const quiet = await writeTalk(fakeModel(answer({ shouldReply: false, nickname: 'вовче' })).write, baseRequest, allowed);
+    assert.equal(quiet.nickname, null, 'no nickname when she keeps quiet');
+  });
 
   it('keeps the text and the labels of the store it told, those the request gave only', async () => {
     const model = fakeModel(answer({ text: 'Юзала першою.', snippetIds: ['Z1', 'Z9'], postIds: ['P1', 'Z1'] }));
@@ -298,8 +312,10 @@ function fakeStore(options: {
   told?: ToldStory[];
   /** How close a message is to the details and posts, as the vector search would say */
   scores?: MaterialScore[];
+  nicknames?: Map<string, string>;
 } = {}) {
   const created: { talk: NewTalkPost; consumed: number[] }[] = [];
+  const nicknames = options.nicknames ?? new Map<string, string>();
   const counted: number[] = [];
   const store = {
     talkChat: async () => (options.chat === undefined ? chat() : options.chat),
@@ -319,6 +335,11 @@ function fakeStore(options: {
       { userId: '6', name: 'Тихий', text: 'я не скажу' },
     ],
     chatMessage: async () => ({ userId: '42', name: 'Олег', text: 'а він швидкий?' }),
+    nickname: async (_chatId: string, userId: string) => nicknames.get(userId) ?? null,
+    // As the store does: a cat who asked to be left alone gets no nickname
+    setNickname: async (_chatId: string, userId: string, nickname: string) => {
+      if (!options.optedOut?.includes(userId)) nicknames.set(userId, nickname);
+    },
     profile: async () => ({
       interests: [],
       memes: [],
@@ -330,7 +351,7 @@ function fakeStore(options: {
     },
     materialScores: async (_chatId: string, ids: number[]) => (options.scores ?? []).filter((s) => ids.includes(s.storyId)),
   };
-  return { store, created, counted };
+  return { store, created, counted, nicknames };
 }
 
 /**
@@ -430,6 +451,22 @@ describe('CrowConversation', () => {
       extras: null,
     });
     assert.equal(sent.length, 1);
+  });
+
+  it('calls a cat by the nickname she gave him in the next talks, and gives none to a cat who asked to be left alone', async () => {
+    const { store, nicknames } = fakeStore({ replied: opusPost });
+    const model = fakeModel(answer({ text: '🐦‍⬛ Вовче, дешевший на 20%.', nickname: '«вовче»' }), answer({ text: '🐦‍⬛ Та швидкий, вовче.', nickname: 'вовче' }));
+    const { talk } = conversation(store, model);
+    await run(talk, heard({ text: 'я вовк, мені байдуже', replyToMessageId: 1366 }));
+    assert.equal(model.requests[0].nickname, null);
+    assert.equal(nicknames.get('42'), 'вовче');
+    await run(talk, heard({ messageId: 901, text: 'а він хоч швидкий?', replyToMessageId: 1366 }));
+    assert.equal(model.requests[1].nickname, 'вовче');
+
+    const alone = fakeStore({ replied: opusPost, optedOut: ['42'] });
+    const quiet = fakeModel(answer({ nickname: 'вовче' }));
+    await run(conversation(alone.store, quiet).talk, heard({ text: 'ворона, я вовк', replyToMessageId: 1366 }));
+    assert.equal(alone.nicknames.size, 0);
   });
 
   it('answers a cat who calls her by name, about the stories the message names or the latest', async () => {
@@ -577,6 +614,14 @@ describe('«я ж казала»', () => {
       anchors: { post: { label: '💬', url: 'https://t.me/c/1906889754/1366' } },
     });
     assert.equal(sent.length, 1);
+  });
+
+  it('calls the cat by the nickname she gave him', async () => {
+    const { store } = fakeStore({ nicknames: new Map([['42', 'вовче']]) });
+    const told = fakeTold({ sameNews: true, text: '🐦‍⬛ Вовче, я про це каркала ще {when}.' });
+    await run(conversation(store, fakeModel(answer()), NOW, told).talk, forward());
+    assert.equal(told.requests[0].nickname, 'вовче');
+    assert.ok(toldPrompt(told.requests[0]).includes('«вовче»'));
   });
 
   it('owns up when the forwarded original came out before her post', async () => {

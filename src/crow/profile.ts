@@ -191,7 +191,7 @@ export interface JabStory {
  */
 export class JabWriter {
   constructor(
-    private readonly store: Pick<CrowStore, 'profile' | 'optedOut' | 'recentPosts'>,
+    private readonly store: Pick<CrowStore, 'profile' | 'optedOut' | 'nicknames' | 'recentPosts'>,
     private readonly write: (request: JabRequest) => Promise<Priced<JabResult>>,
   ) {}
 
@@ -201,16 +201,25 @@ export class JabWriter {
     story: JabStory,
     now: Date,
   ): Promise<{ jabs: PlannedJab[]; costUsd: number }> {
-    const profile = await this.store.profile(chatId);
-    const optedOut = await this.store.optedOut(chatId);
+    const [profile, optedOut, nicknames, memory] = await Promise.all([
+      this.store.profile(chatId),
+      this.store.optedOut(chatId),
+      this.store.nicknames(chatId),
+      this.store.recentPosts(chatId, MEMORY_POSTS),
+    ]);
     const members = profile?.members.filter((member) => !optedOut.has(member.userId)) ?? [];
     if (members.length === 0) return { jabs: [], costUsd: 0 };
 
     const { count, ping } = jabsFor(boldness);
-    const recentPosts = (await this.store.recentPosts(chatId, MEMORY_POSTS)).map((post) => memoryLine(post, now));
+    const recentPosts = memory.map((post) => memoryLine(post, now));
     const request: JabRequest = {
       ...story,
-      targets: members.map((member) => ({ userId: member.userId, name: member.name, topics: member.topics })),
+      targets: members.map((member) => ({
+        userId: member.userId,
+        name: member.name,
+        topics: member.topics,
+        nickname: nicknames.get(member.userId) ?? null,
+      })),
       count,
       recentPosts,
     };

@@ -31,6 +31,9 @@ export interface DispatchCandidate {
   storyLastSentAt: Date | null;
 }
 
+/** `carries` — the post has «Кш!»; `leaves` — it has none, and the post before keeps it; `takes` — it has none, and the post before loses it */
+type ShooRole = 'carries' | 'leaves' | 'takes';
+
 /**
  * What each kind of post is to the queue and the sender, so that a new kind decides each of it:
  * - `name` — how the log calls it;
@@ -39,30 +42,31 @@ export interface DispatchCandidate {
  *   reminders of the games that come or go, GTA VI's countdown, the release radar and her birthday are not news,
  *   and are neither counted nor stopped — a goodbye matters most on the busiest day, a reminder cannot wait for
  *   the next hour. Her talks go at once, past the queue;
- * - `shoo` — it carries «Кш!»: not the crow saying who she is, her goodbye before the night, her birthday once a
- *   year, her answer to a cat who called her, nor the polls — a bet, a quiz — which take no buttons of the
- *   crow's. Joining a talk uncalled, she carries it.
+ * - `shoo` — what it does with «Кш!»: most posts carry it; the crow saying who she is, her birthday
+ *   once a year, her answer to a cat who called her and the polls — a bet, a quiz — which take no buttons of the
+ *   crow's, leave it under the post before; her goodbye before the night takes it off, for nothing of the queue
+ *   follows it till the morning. Joining a talk uncalled, she carries it.
  */
-export const POST_KINDS: Record<CrowPostKind, { name: string; limited: boolean; shoo: boolean }> = {
-  arc: { name: 'Post', limited: true, shoo: true },
-  digest: { name: 'Morning digest', limited: true, shoo: true },
-  jab: { name: 'Jab', limited: true, shoo: true },
-  intro: { name: 'Introduction', limited: false, shoo: false },
-  goodbye: { name: 'Evening goodbye', limited: false, shoo: false },
-  reply: { name: 'Reply', limited: false, shoo: false },
-  chime: { name: 'Chime-in', limited: false, shoo: true },
-  told: { name: '«Я ж казала»', limited: false, shoo: true },
-  update: { name: 'Rumor update', limited: true, shoo: true },
-  weekly: { name: 'Weekly digest', limited: false, shoo: true },
-  bet: { name: 'Bet', limited: true, shoo: false },
-  outcome: { name: 'Bet outcome', limited: false, shoo: true },
-  event: { name: 'Stream announcement', limited: false, shoo: true },
-  reminder: { name: 'Stream reminder', limited: false, shoo: true },
-  quiz: { name: 'Quiz', limited: true, shoo: false },
-  due: { name: 'Reminder', limited: false, shoo: true },
-  countdown: { name: 'Countdown', limited: false, shoo: true },
-  radar: { name: 'Release radar', limited: false, shoo: true },
-  birthday: { name: 'Birthday', limited: false, shoo: false },
+export const POST_KINDS: Record<CrowPostKind, { name: string; limited: boolean; shoo: ShooRole }> = {
+  arc: { name: 'Post', limited: true, shoo: 'carries' },
+  digest: { name: 'Morning digest', limited: true, shoo: 'carries' },
+  jab: { name: 'Jab', limited: true, shoo: 'carries' },
+  intro: { name: 'Introduction', limited: false, shoo: 'leaves' },
+  goodbye: { name: 'Evening goodbye', limited: false, shoo: 'takes' },
+  reply: { name: 'Reply', limited: false, shoo: 'leaves' },
+  chime: { name: 'Chime-in', limited: false, shoo: 'carries' },
+  told: { name: '«Я ж казала»', limited: false, shoo: 'carries' },
+  update: { name: 'Rumor update', limited: true, shoo: 'carries' },
+  weekly: { name: 'Weekly digest', limited: false, shoo: 'carries' },
+  bet: { name: 'Bet', limited: true, shoo: 'leaves' },
+  outcome: { name: 'Bet outcome', limited: false, shoo: 'carries' },
+  event: { name: 'Stream announcement', limited: false, shoo: 'carries' },
+  reminder: { name: 'Stream reminder', limited: false, shoo: 'carries' },
+  quiz: { name: 'Quiz', limited: true, shoo: 'leaves' },
+  due: { name: 'Reminder', limited: false, shoo: 'carries' },
+  countdown: { name: 'Countdown', limited: false, shoo: 'carries' },
+  radar: { name: 'Release radar', limited: false, shoo: 'carries' },
+  birthday: { name: 'Birthday', limited: false, shoo: 'leaves' },
 };
 
 const kinds = (has: (kind: (typeof POST_KINDS)[CrowPostKind]) => boolean): readonly CrowPostKind[] =>
@@ -70,8 +74,17 @@ const kinds = (has: (kind: (typeof POST_KINDS)[CrowPostKind]) => boolean): reado
 
 /** The posts the chat's limits count and stop */
 export const LIMITED_KINDS = kinds((kind) => kind.limited);
-/** The posts without «Кш!» */
-export const WITHOUT_SHOO = kinds((kind) => !kind.shoo);
+/** The posts that neither have «Кш!» nor take it off: the button's place does not depend on them */
+export const LEAVES_SHOO = kinds((kind) => kind.shoo === 'leaves');
+
+/**
+ * The message under which «Кш!» is, among the chat's sent posts newest first — those that leave it may be left out,
+ * as the store's query does: the latest post that carries it, or none when a goodbye took it off since
+ */
+export function shooMessage(posts: readonly { kind: CrowPostKind; tgMessageId: number }[]): number | null {
+  const latest = posts.find((post) => POST_KINDS[post.kind].shoo !== 'leaves');
+  return latest && POST_KINDS[latest.kind].shoo === 'carries' ? latest.tgMessageId : null;
+}
 
 const outsideLimits = (candidate: DispatchCandidate) => !LIMITED_KINDS.includes(candidate.kind);
 

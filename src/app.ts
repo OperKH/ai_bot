@@ -3,13 +3,18 @@ import dataSource from './dataSource/dataSource';
 import { checkVectorExtensions } from './dataSource/vectorExtensions';
 import { ConfigService } from './config/config.service';
 import { Bot } from './bot/bot.class';
+import { OwnerAlerts, QUOTA_ALERT } from './bot/ownerAlerts';
+import { ownerKeyboard } from './crow/crowMenu';
 import { AIService } from './services/ai.service';
+import { OpenAIService } from './services/openai.service';
 import {
   StartCommand,
   ClassifyMessageCommand,
+  CrowCommand,
   IgnoreMediaCommand,
   MediaTrackerCommand,
   RecognizeSpeechCommand,
+  TimeZoneCommand,
   TrendsCommand,
 } from './bot/commands/index';
 
@@ -29,7 +34,23 @@ bot.registerCommands([
   ClassifyMessageCommand,
   RecognizeSpeechCommand,
   TrendsCommand,
+  TimeZoneCommand,
+  CrowCommand,
 ]);
+
+if (!configService.get('TG_OWNER_ID')) {
+  console.warn(
+    "[Config] TG_OWNER_ID is not set: the owner's alerts — an empty OpenAI balance, the crow's spent budget — go only to this log",
+  );
+}
+
+// An empty OpenAI balance stops trends, image descriptions and the crow alike; the owner hears of it once a day
+const ownerAlerts = new OwnerAlerts(bot.api, configService.get('TG_OWNER_ID'), dataSource);
+OpenAIService.getInstance().onQuotaExhausted(() => {
+  ownerAlerts
+    .notify('openai-quota', QUOTA_ALERT, { reply_markup: ownerKeyboard(false), link_preview_options: { is_disabled: true } })
+    .catch((e) => console.error('[Alerts] Could not alert the owner of the OpenAI balance:', e));
+});
 
 let isShuttingDown = false;
 

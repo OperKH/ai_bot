@@ -11,17 +11,24 @@
 
 import type { ModelPrice } from './pricing.ts';
 
-export type ModelVariable = 'OPENAI_MODEL' | 'OPENAI_VISION_MODEL';
-export type EffortVariable = 'OPENAI_REASONING_EFFORT' | 'OPENAI_VISION_REASONING_EFFORT';
-export type ConfigVariable = ModelVariable | EffortVariable;
-
-export const MODEL_VARIABLES: readonly ModelVariable[] = ['OPENAI_MODEL', 'OPENAI_VISION_MODEL'];
-
-/** The effort that governs each model variable, since the two must move together. */
-export const EFFORT_FOR: Readonly<Record<ModelVariable, EffortVariable>> = {
+/**
+ * Every model variable with the effort that governs it, since the two must move together — the one list of
+ * the variables, in their order
+ */
+export const EFFORT_FOR = {
   OPENAI_MODEL: 'OPENAI_REASONING_EFFORT',
   OPENAI_VISION_MODEL: 'OPENAI_VISION_REASONING_EFFORT',
-};
+  OPENAI_CROW_MODEL: 'OPENAI_CROW_REASONING_EFFORT',
+  OPENAI_CROW_ARC_MODEL: 'OPENAI_CROW_ARC_REASONING_EFFORT',
+  OPENAI_CROW_TALK_MODEL: 'OPENAI_CROW_TALK_REASONING_EFFORT',
+  OPENAI_CROW_TEXT_MODEL: 'OPENAI_CROW_TEXT_REASONING_EFFORT',
+} as const;
+
+export type ModelVariable = keyof typeof EFFORT_FOR;
+export type EffortVariable = (typeof EFFORT_FOR)[ModelVariable];
+export type ConfigVariable = ModelVariable | EffortVariable;
+
+export const MODEL_VARIABLES = Object.keys(EFFORT_FOR) as readonly ModelVariable[];
 
 /**
  * Reasoning efforts as rungs, cheapest first. `none` and `minimal` are the same
@@ -85,7 +92,7 @@ export const CONFIG_LOCATIONS: readonly ConfigLocation[] = [
       ),
   },
   {
-    path: 'CLAUDE.md',
+    path: 'docs/configuration.md',
     label: 'documented default',
     pattern: (variable) =>
       new RegExp(String.raw`\x60${RegExp.escape(variable)}\x60[^\n]*?default:\s*(?<model>[^)\s]+)`),

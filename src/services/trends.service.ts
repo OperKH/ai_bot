@@ -3,7 +3,11 @@ import { ChatMessage, TrendsSummary } from '../entity/index.js';
 import { OpenAIService, SummarizationResult } from './openai.service.js';
 
 const BASE_PERIOD_HOURS = 3;
-const MAX_RETENTION_HOURS = 30 * 24; // 30 days
+const HOUR_MS = 60 * 60 * 1000;
+/** The chat's messages are kept far longer than /trends reads them (3 days at most), for later analysis */
+const MESSAGE_RETENTION_MS = 90 * 24 * HOUR_MS;
+/** A cached summary is only worth it while its period can be asked for again */
+const SUMMARY_RETENTION_MS = 30 * 24 * HOUR_MS;
 const CLEANUP_INTERVAL_MS = 24 * 60 * 60 * 1000; // 1 day
 const MAX_MESSAGES_PER_REQUEST = 1000;
 
@@ -262,11 +266,15 @@ export class TrendsService {
   }
 
   private async cleanup(): Promise<void> {
-    const cutoffDate = new Date(Date.now() - MAX_RETENTION_HOURS * 60 * 60 * 1000);
+    const now = Date.now();
 
     try {
-      const msgResult = await this.chatMessageRepo.delete({ createdAt: LessThan(cutoffDate) });
-      const summaryResult = await this.trendsSummaryRepo.delete({ periodEnd: LessThan(cutoffDate) });
+      const msgResult = await this.chatMessageRepo.delete({
+        createdAt: LessThan(new Date(now - MESSAGE_RETENTION_MS)),
+      });
+      const summaryResult = await this.trendsSummaryRepo.delete({
+        periodEnd: LessThan(new Date(now - SUMMARY_RETENTION_MS)),
+      });
       console.log(
         `${TrendsService.LOG_PREFIX} Cleanup: ${msgResult.affected} messages, ${summaryResult.affected} summaries`,
       );

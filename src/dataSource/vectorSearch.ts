@@ -107,3 +107,67 @@ export async function findIgnoredMedia(
   const [ignored] = await withVectorIndex(dataSource, (manager) => manager.query<{ id: string }[]>(sql, params));
   return ignored;
 }
+
+/**
+ * A vector as the `halfvec` and `vector` columns take it. The crow's queries below compare a few dozen or
+ * hundred rows exactly — the stories of one chat, the entries of the last days — and use no vector index, so
+ * they are no sphere queries and need no `withVectorIndex`.
+ */
+const vectorParam = (embedding: number[]) => JSON.stringify(embedding);
+
+/** A detail of a story's store, or a post of its arc waiting in a chat, and how close it is to a message */
+export interface MaterialScore {
+  storyId: number;
+  kind: 'detail' | 'post';
+  /** The detail's id (`crow_snippet`), or the chat's post's (`crow_post`) */
+  id: number;
+  similarity: number;
+}
+
+/**
+ * What the crow may still say in the chat of the stories — the details of their store the chat has not
+ * heard, and the posts of their arcs still waiting — each with its similarity to a message's embedding. The
+ * details told are read once, with `NOT IN`: a `NOT EXISTS` over the arrays read the chat's posts per detail.
+ */
+export async function talkMaterialScores(
+  dataSource: DataSource,
+  chatId: string,
+  storyIds: number[],
+  embedding: number[],
+): Promise<MaterialScore[]> {
+  if (storyIds.length === 0) return [];
+  return dataSource.query<MaterialScore[]>(
+    `SELECT snippet."storyId", 'detail' AS kind, snippet.id, 1 - (snippet.embedding <=> $3::halfvec) AS similarity
+     FROM crow_snippet snippet
+     WHERE snippet."storyId" = ANY($2::int[]) AND snippet.embedding IS NOT NULL
+       AND snippet.id NOT IN (SELECT unnest(told."snippetIds") FROM crow_post told WHERE told."chatId" = $1 AND cardinality(told."snippetIds") > 0)
+     UNION ALL
+     SELECT post."storyId", 'post' AS kind, post.id, 1 - (message.embedding <=> $3::halfvec) AS similarity
+     FROM crow_post post
+     JOIN crow_story_message message ON message.id = post."storyMessageId"
+     WHERE post."chatId" = $1 AND post."storyId" = ANY($2::int[]) AND post.kind = 'arc' AND post.status = 'planned'
+       AND message.embedding IS NOT NULL
+     ORDER BY similarity DESC`,
+    [chatId, storyIds, vectorParam(embedding)],
+  );
+}
+
+/**
+ * How close an entry is in meaning to each story of the categories started since `since`, by the best of their
+ * entries, the closest first: a game news another publisher already brought
+ */
+export async function closestGameStories(
+  dataSource: DataSource,
+  embedding: number[],
+  since: Date,
+  categories: readonly string[],
+): Promise<{ storyId: number; similarity: number }[]> {
+  return dataSource.query<{ storyId: number; similarity: number }[]>(
+    `SELECT item."storyId", max(1 - (item.embedding <=> $1::halfvec)) AS similarity
+     FROM crow_source_item item JOIN crow_story story ON story.id = item."storyId"
+     WHERE story."createdAt" > $2 AND story.categories && $3::text[] AND story.status <> 'failed' AND item.embedding IS NOT NULL
+     GROUP BY item."storyId"
+     ORDER BY similarity DESC`,
+    [vectorParam(embedding), since, categories],
+  );
+}

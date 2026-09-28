@@ -1,9 +1,9 @@
 ---
 name: update-openai-pricing
-description: Refresh the MODEL_PRICING constant in src/services/openai.service.ts from the official OpenAI pricing page. Use when token costs look wrong or stale, when a new model must be priced, or when asked to update/check OpenAI prices.
+description: Refresh the MODEL_PRICING constant in src/services/openai.service.ts from the official OpenAI pricing page. Use when token costs look wrong or stale, when a new model must be priced, or when asked to update/check OpenAI prices. Also A/Bs a new model against the bot's current ones before switching — including the crow's blind A/B, to check that its arcs do not get worse on a new model such as the next sol.
 model: haiku
 effort: low
-allowed-tools: Bash, Read, Grep, AskUserQuestion
+allowed-tools: Bash, Read, Grep, AskUserQuestion, Agent
 argument-hint: '[--check] [--tier <tier>]'
 ---
 
@@ -254,6 +254,70 @@ switch it as part of this flow: image description needs a multimodal model, and 
 pricing page says which models qualify. Mention that it stayed as it was, and switch it only if
 the user asks (`--variable OPENAI_VISION_MODEL`).
 
+The crow's models are separate too, each with its own effort: `OPENAI_CROW_MODEL` (sorting news and
+extracting facts, luna), `OPENAI_CROW_ARC_MODEL` (the arcs, sol), `OPENAI_CROW_TEXT_MODEL` (what the whole
+chat reads of her outside the arcs, a few calls a day — the digests, the goodbye, the jabs, the radar, the quiz,
+the reminders, the countdown, a bet's outcome, the birthday; sol, by a blind A/B) and `OPENAI_CROW_TALK_MODEL` (the rest outside the arcs, her talks first, many a day; luna). The arc model was chosen by a blind A/B of
+the crow's own prompt — the cheaper luna lost every judgement — so a lower price is not a reason to move
+it. Never switch any of them as part of this flow; mention that they stayed, and switch one only if the
+user asks (`--variable OPENAI_CROW_MODEL`, `OPENAI_CROW_ARC_MODEL`, `OPENAI_CROW_TEXT_MODEL` or `OPENAI_CROW_TALK_MODEL`) — the arc
+model only after the crow's A/B below.
+
+## The crow's arcs — an A/B before `OPENAI_CROW_ARC_MODEL` moves
+
+The crow's arcs run on their own model, chosen by a blind A/B
+([docs/crow/pipeline.md](../../../docs/crow/pipeline.md#models-and-costs)). What a new model can quietly
+lose there is the humour and the persona's voice, which neither the capability table nor a mechanical
+check sees. So moving this variable takes the crow's own A/B: the six bundled stories
+([fixtures/crow-stories.json](fixtures/crow-stories.json), real AI releases) written by both models through
+the bot's own arc code, then two blind judges.
+
+**When.** The user asks whether a model would do for the crow; or step 5 added a model of the arc
+model's family — a new sol, say `gpt-6.1-sol`. Then offer the A/B as one more question in step 6's
+`AskUserQuestion` round, or in a round of its own. Never start it unasked: it spends the user's tokens.
+
+1. **Price it**, and quote the estimate in the question:
+
+   ```bash
+   node .claude/skills/update-openai-pricing/scripts/evaluate-crow.ts \
+     --baseline <current OPENAI_CROW_ARC_MODEL> --candidate <model> --dry-run
+   ```
+
+   Offer 1 run _(recommend: 6 stories × 2 judges = 12 comparisons)_, 2 runs for a close call, never more
+   than 3. The arcs were tuned at `medium`: when the candidate's generation names its rungs differently,
+   probe it (`switch-model.ts --probe-efforts <model>`) and pass the equivalent rung as
+   `--candidate-effort`.
+
+2. **Run it** with the same models and `--runs <n>`. Its calls are not traced in Langfuse — the worker
+   does not start the tracing — so they never mix with the bot's own traces. It prints the mechanical table — openings that failed
+   the bot's checks, rewrites, dropped messages, cost and time per arc, swearing, euphemisms, worn-out
+   images, press-release openings — and where it put `blind_1.md`, `blind_2.md` and the keys. The keys go
+   to a separate `<dir>-keys` directory: do not open it before the judges have answered.
+
+3. **Judge it blind.** Launch **two** `Agent` calls in one message, `subagent_type: general-purpose` and
+   `model: opus`, one per blind file. Each prompt is [fixtures/crow-judge.md](fixtures/crow-judge.md) with
+   `{{BLIND_FILE}}` replaced by that file's path, `{{VERDICT_FILE}}` by `judge_<n>.json` in the same
+   directory and `{{LANGUAGE}}` by the user's language. Opus rather than this skill's own model: the
+   judging is the whole point of the run. Do not read the arcs or the blind files yourself before the
+   judges answer, and do not pass the judges any expectation of which model should win.
+
+4. **Score it:**
+
+   ```bash
+   node .claude/skills/update-openai-pricing/scripts/score-crow.ts --out <the run's directory>
+   ```
+
+   It exits 1 when the candidate made the crow worse: the judges preferred the baseline in more than half
+   of the comparisons, or the candidate bent more facts, gave fewer arcs fit to post as they are, failed
+   the bot's checks or returned nothing more often. It also writes `score.md` with the judges' notes.
+
+5. **Report and ask once.** Paste the score table, the reasons, the fact errors and two or three of the
+   judges' notes, and say it is evidence over that many comparisons of a handful of stories, not a
+   guarantee. Then one `AskUserQuestion`: switch the arcs to the candidate, or keep the current model.
+   Switch with `switch-model.ts --variable OPENAI_CROW_ARC_MODEL --to <model>`, which moves the effort
+   too. If the cost per arc changed a lot, say what it does to `OPENAI_CROW_DAILY_BUDGET_USD`: the limit
+   was sized at a quarter of a day's spending on 2–3 cents an arc.
+
 ## Step 7 — verify and report
 
 Run this last, after step 6 has been done or established as not applying. Writing the file is not the
@@ -317,9 +381,13 @@ which is which. A table outside any switcher is standard tier.
 Only relevant when a warning says the parser drifted, or when adding a table.
 
 ```bash
-node --test .claude/skills/update-openai-pricing/scripts/pricing.test.ts
+node --test .claude/skills/update-openai-pricing/scripts/*.test.ts
 npx tsc --noEmit -p .claude/skills/update-openai-pricing/scripts
 ```
+
+`crow-worker.ts` is left out of that `tsc`: it imports the app, whose modules resolve without extensions.
+`npm run typecheck` covers what it calls; the worker itself type-checks with
+`npx tsc --ignoreConfig --noEmit --module preserve --moduleResolution bundler --target esnext --lib esnext,esnext.temporal --types node --strict --skipLibCheck --experimentalDecorators --allowImportingTsExtensions .claude/skills/update-openai-pricing/scripts/crow-worker.ts`.
 
 `scripts/pricing.ts` is pure — parsing plus source rewriting; `scripts/update-pricing.ts` adds arguments, fetching, file
 I/O and the report. Tests run against [fixtures/pricing-page.html](fixtures/pricing-page.html), a trimmed real snapshot

@@ -10,6 +10,7 @@ import {
   Processor,
   PreTrainedModel,
   AutoTokenizer,
+  AutoModel,
   AutoProcessor,
   CLIPVisionModelWithProjection,
   CLIPTextModelWithProjection,
@@ -50,6 +51,21 @@ export type WhisperResponse = {
   text: string;
 };
 
+/**
+ * What EmbeddingGemma is asked, each with the prompt of its model card: a chat
+ * message looks for what it is about (`query`), a detail or a post is what it
+ * finds (`document`), and two texts of one kind — a forwarded post and a
+ * headline — are compared as they are (`similarity`). A symmetric prompt for a
+ * message and a detail loses much of the gap between on and off topic.
+ */
+export type TextEmbeddingTask = 'query' | 'document' | 'similarity';
+
+const TEXT_EMBEDDING_PROMPTS: Record<TextEmbeddingTask, (text: string) => string> = {
+  query: (text) => `task: search result | query: ${text}`,
+  document: (text) => `title: none | text: ${text}`,
+  similarity: (text) => `task: sentence similarity | query: ${text}`,
+};
+
 export class AIService {
   private static instance: AIService;
   private constructor() {}
@@ -71,6 +87,14 @@ export class AIService {
   private static toxicModel = 'OperKH/twitter-xlmr-toxicity-classifier-ONNX';
   private static toxicLabel = 'toxic';
   private static zeroShotClassificationModel = 'Xenova/mDeBERTa-v3-base-xnli-multilingual-nli-2mil7';
+  /**
+   * The crow's text embeddings (docs/ai-models.md#embeddinggemma), 768 dimensions.
+   * fp32: its q8 file is four times slower and takes twice the memory, since the
+   * int8 weights are unpacked to fp32 as it runs.
+   */
+  private static gemmaModel = 'onnx-community/embeddinggemma-300m-ONNX';
+  /** Texts embedded in one run of the model */
+  private static gemmaBatch = 16;
   /** How long translation is skipped after Google Translate fails */
   private static translateCooldownMs = 5 * 60 * 1000;
   /**
@@ -91,6 +115,8 @@ export class AIService {
   private toxicAnalysisPipeline: Promise<TextClassificationPipeline> | null = null;
   private zeroShotClassificationPipeline: Promise<ZeroShotClassificationPipeline> | null = null;
   private automaticSpeechRecognitionPipeline: Promise<AutomaticSpeechRecognitionPipeline> | null = null;
+  private gemmaTokenizer: Promise<PreTrainedTokenizer> | null = null;
+  private gemmaEmbeddingModel: Promise<PreTrainedModel> | null = null;
 
   private disposing: Promise<void> | null = null;
 
@@ -113,6 +139,7 @@ export class AIService {
         this.toxicAnalysisPipeline,
         this.zeroShotClassificationPipeline,
         this.automaticSpeechRecognitionPipeline,
+        this.gemmaEmbeddingModel,
       ].map((model) => model?.then((m) => m.dispose())),
     );
     for (const result of results) {
@@ -182,6 +209,28 @@ export class AIService {
 
     return this.automaticSpeechRecognitionPipeline;
   }
+  private getGemmaTokenizer() {
+    if (!this.gemmaTokenizer) {
+      this.gemmaTokenizer = AutoTokenizer.from_pretrained(AIService.gemmaModel);
+    }
+    return this.gemmaTokenizer;
+  }
+  private getGemmaEmbeddingModel() {
+    if (!this.gemmaEmbeddingModel) {
+      // Loaded through AutoModel for its `sentence_embedding` output: the feature-extraction pipeline
+      // mean-pools `last_hidden_state` and skips the model's projection layers, so its vectors are wrong.
+      // Two threads, so a burst of embeddings does not choke Whisper
+      this.gemmaEmbeddingModel = AutoModel.from_pretrained(AIService.gemmaModel, {
+        dtype: 'fp32',
+        session_options: { intraOpNumThreads: 2, interOpNumThreads: 1 },
+      }).catch((e: unknown) => {
+        // A failed download is tried again by the next call, rather than failing every call after it
+        this.gemmaEmbeddingModel = null;
+        throw e;
+      });
+    }
+    return this.gemmaEmbeddingModel;
+  }
 
   async getRawImageFromFilePath(filePath: string): Promise<RawImage> {
     return RawImage.read(filePath);
@@ -249,6 +298,28 @@ export class AIService {
     const t2 = performance.now();
     console.log(`textEmbedding(${Math.round(t2 - t1)} ms)`);
     return textEmbedding;
+  }
+
+  /**
+   * EmbeddingGemma's vectors of the texts, unit length, in the order given. The
+   * first call downloads the model (about 1.2 GB) into `data/models`.
+   */
+  async getTextEmbeddings(texts: string[], task: TextEmbeddingTask): Promise<number[][]> {
+    if (texts.length === 0) return [];
+    const tokenizer = await this.getGemmaTokenizer();
+    const model = await this.getGemmaEmbeddingModel();
+    const t1 = performance.now();
+    const vectors: number[][] = [];
+    for (let i = 0; i < texts.length; i += AIService.gemmaBatch) {
+      const batch = texts.slice(i, i + AIService.gemmaBatch).map(TEXT_EMBEDDING_PROMPTS[task]);
+      const { sentence_embedding } = await model(tokenizer(batch, { padding: true, truncation: true }));
+      for (const vector of sentence_embedding.tolist() as number[][]) {
+        const norm = Math.hypot(...vector);
+        vectors.push(vector.map((x) => x / norm));
+      }
+    }
+    console.log(`textEmbeddings(${texts.length} ${task}, ${Math.round(performance.now() - t1)} ms)`);
+    return vectors;
   }
 
   async getImageClipEmbedding(image: RawImage): Promise<number[]> {

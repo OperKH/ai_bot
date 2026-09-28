@@ -2,8 +2,10 @@ export * from './command.class';
 
 export * from './classifyMessage.command';
 export * from './clock.command';
+export * from './crow.command';
 export * from './ignoremedia.command';
 export * from './mediaTracker.command';
 export * from './recognizeSpeech.command';
 export * from './start.command';
 export * from './trends.command';
+export * from './timeZone.command';

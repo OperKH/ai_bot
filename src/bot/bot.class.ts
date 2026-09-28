@@ -26,6 +26,9 @@ const STOP_TIMEOUT_MS = 25 * 1000;
  */
 const isTransientTelegramError = (error: unknown) => (error instanceof GrammyError ? error.error_code >= 500 : true);
 
+/** Telegram refuses the bot the chat: it was kicked, or the user blocked it */
+export const isForbiddenTelegramError = (error: unknown) => error instanceof GrammyError && error.error_code === 403;
+
 /**
  * Tells the chat that what the user asked for failed. For `bot.catch` and for
  * work a handler handed over to the background, where `bot.catch` cannot reach.
@@ -107,6 +110,11 @@ export class Bot {
       onRetry: (e, attempt, nextDelayMs) =>
         console.warn(`setMyCommands failed (attempt ${attempt}), retrying in ${nextDelayMs} ms:`, e),
     }).catch((e) => console.error('Failed to set bot commands:', e));
+  }
+
+  /** The Bot API, for messages that do not answer an update, such as the owner's alerts */
+  get api(): BotApi {
+    return this.bot.api;
   }
 
   /** Starts long polling; see `UpdateQueue.start` for when the promise settles */

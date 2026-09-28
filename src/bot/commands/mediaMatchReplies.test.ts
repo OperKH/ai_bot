@@ -2,6 +2,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import type { MediaMatch } from '../../dataSource/vectorSearch';
 import {
+  duplicateHeader,
   MatchReplyPort,
   MorePressPort,
   parseMoreCallback,
@@ -123,13 +124,37 @@ describe('replyWithDuplicates', () => {
     assert.match(chat.visible()[1].text, /^ось тут /);
   });
 
-  it('takes the header back when every match is deleted', async () => {
+  it('takes the header back when every match is deleted, and tells it found no bayan', async () => {
     const chat = new FakeChat();
     chat.deleted.add('1000').add('999');
-    await replyWithDuplicates(chat, 777, ranking(2), 3);
+    assert.equal(await replyWithDuplicates(chat, 777, ranking(2), 3), 0);
 
     assert.deepEqual(chat.visible(), []);
     assert.deepEqual(chat.forgotten, ['1000', '999']);
+  });
+
+  it('tells how many earlier copies it showed', async () => {
+    assert.equal(await replyWithDuplicates(new FakeChat(), 777, ranking(5), 3), 3);
+    assert.equal(await replyWithDuplicates(new FakeChat(), 777, [], 3), 0);
+  });
+
+  it('celebrates each jubilee of a bayan with its own emoji', async () => {
+    const chat = new FakeChat();
+    await replyWithDuplicates(chat, 777, ranking(9), 3);
+    assert.equal(chat.visible()[0].text, '🎉 Ювілейний баян: це вже 10-й раз!');
+    assert.deepEqual(
+      [24, 49, 99, 249, 499, 999].map(duplicateHeader),
+      [
+        '🥈 Ювілейний баян: це вже 25-й раз!',
+        '🥇 Ювілейний баян: це вже 50-й раз!',
+        '💯 Ювілейний баян: це вже 100-й раз!',
+        '🏆 Ювілейний баян: це вже 250-й раз!',
+        '👑 Ювілейний баян: це вже 500-й раз!',
+        '🗿 Ювілейний баян: це вже 1000-й раз!',
+      ],
+    );
+    assert.match(duplicateHeader(10), /Здається, я це вже десь бачив/);
+    assert.match(duplicateHeader(1), /Здається, я це вже десь бачив/);
   });
 });
 

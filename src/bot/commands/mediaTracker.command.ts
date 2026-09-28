@@ -1,17 +1,19 @@
 import { type CallbackQueryContext, InlineKeyboard } from 'grammy';
 import { TelegramClient, Api, sessions, errors } from 'telegram';
-import { FindOptionsWhere, LessThan } from 'typeorm';
+import { type DataSource, FindOptionsWhere, LessThan } from 'typeorm';
 import { Command } from './command.class';
 import { apologize } from '../bot.class';
 import type { BotContext, MessageContext } from '../context/context.interface';
 import { downloadTelegramFile, downloadUpdateFile } from '../telegramFiles';
 import { AIService, FrameEmbedding } from '../../services/ai.service';
 import { VideoService } from '../../services/video.service';
-import { ChatPhotoMessage, ChatState, MediaSearch } from '../../entity/index';
+import { ChatPhotoMessage, ChatState, MediaRepeat, MediaSearch } from '../../entity/index';
 import { findIgnoredMedia, findSimilarMedia } from '../../dataSource/vectorSearch';
 import { messageLink } from '../telegramLinks.js';
 import { BackgroundQueue } from '../backgroundQueue';
 import { MatchReplyPort, parseMoreCallback, pressMore, replyWithDuplicates, showSearchPage } from './mediaMatchReplies';
+import { type BayanRow, type BayanStatsPort, postDueStats } from './bayanStats';
+import type { MediaMatch } from '../../dataSource/vectorSearch';
 
 /** Media messages added during an import so far */
 type ImportCounters = { photos: number; videos: number };
@@ -28,6 +30,9 @@ const SEARCH_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 /** How often expired searches are looked for */
 const SEARCH_CLEANUP_EVERY_MS = 60 * 60 * 1000;
 
+/** How often the bayan statistics are looked for: they go at a minute of the chat's evening */
+const BAYAN_STATS_EVERY_MS = 60 * 1000;
+
 export class MediaTrackerCommand extends Command {
   public command = 'searchmedia';
   public description = '[text] 🖼 Пошук медіа за описом';
@@ -36,6 +41,7 @@ export class MediaTrackerCommand extends Command {
   private tgClient: TelegramClient | null = null;
   private isMediaImporting = false;
   private searchCleanupTimer: NodeJS.Timeout | undefined;
+  private bayanStatsTimer: NodeJS.Timeout | undefined;
   private readonly searchPages = new BackgroundQueue('Search page');
 
   handle(): void {
@@ -46,6 +52,12 @@ export class MediaTrackerCommand extends Command {
       // eslint-disable-next-line @typescript-eslint/no-floating-promises
       this.removeExpiredSearches();
     }, SEARCH_CLEANUP_EVERY_MS).unref();
+    this.bayanStatsTimer = setInterval(() => {
+      const port = bayanStatsPort(this.dataSource, async (chatId, message) => {
+        await this.bot.api.sendRichMessage(Number(chatId), message);
+      });
+      postDueStats(port, new Date()).catch((e) => console.error('[Media] Bayan statistics failed:', e));
+    }, BAYAN_STATS_EVERY_MS).unref();
 
     this.bot.on('message:photo', async (ctx, next) => {
       const fileId = ctx.msg.photo.at(-1)?.file_id;
@@ -175,7 +187,10 @@ export class MediaTrackerCommand extends Command {
       } else {
         const matches = await findSimilarMedia(this.dataSource, { chatId, embeddings, threshold });
         const limit = this.configService.get('MATCH_IMAGE_COUNT');
-        await replyWithDuplicates(this.matchReplyPort(ctx, chatId), messageId, matches, limit);
+        // A match whose every earlier copy is gone is no bayan
+        if ((await replyWithDuplicates(this.matchReplyPort(ctx, chatId), messageId, matches, limit)) > 0) {
+          await this.keepBayan(ctx, mediaType, matches);
+        }
       }
     } catch (e) {
       console.log(e);
@@ -183,15 +198,51 @@ export class MediaTrackerCommand extends Command {
 
     try {
       const repository = this.dataSource.getRepository(ChatPhotoMessage);
+      const { authorId } = MediaTrackerCommand.author(ctx);
+      const sentAt = new Date(ctx.msg.date * 1000);
       await repository.save(
         frames.map(({ frameIndex, embedding }) =>
-          repository.create({ chatId: String(chatId), messageId: String(messageId), mediaType, frameIndex, embedding }),
+          repository.create({ chatId: String(chatId), messageId: String(messageId), mediaType, frameIndex, embedding, userId: authorId, sentAt }),
         ),
+      );
+      // The first media kept so marks when the chat's bayans began to be counted
+      await this.dataSource.query(
+        `INSERT INTO chat_state ("chatId", "mediaTrackedSince") VALUES ($1, $2)
+         ON CONFLICT ("chatId") DO UPDATE SET "mediaTrackedSince" = EXCLUDED."mediaTrackedSince"
+         WHERE chat_state."mediaTrackedSince" IS NULL`,
+        [String(chatId), sentAt],
       );
     } catch (e) {
       console.log(e);
     }
   }
+
+  /** Who posted a message: the channel or group it was sent on behalf of, or the user */
+  private static author(ctx: MessageContext): { authorId: string; authorName: string } {
+    const { sender_chat: chat, from } = ctx.msg;
+    // A message on behalf of a chat comes from a channel or a group, which have a title
+    if (chat) return { authorId: String(chat.id), authorName: ('title' in chat ? chat.title : undefined) ?? String(chat.id) };
+    return { authorId: String(from.id), authorName: [from.first_name, from.last_name].filter(Boolean).join(' ') || (from.username ?? String(from.id)) };
+  }
+
+  /** A bayan for the month's statistics: who posted it, and the copies it repeats — the first and the latest */
+  private async keepBayan(ctx: MessageContext, mediaType: 'photo' | 'video', matches: MediaMatch[]) {
+    const ids = matches.map((match) => BigInt(match.messageId));
+    const min = ids.reduce((a, b) => (b < a ? b : a));
+    const max = ids.reduce((a, b) => (b > a ? b : a));
+    await this.dataSource.getRepository(MediaRepeat).insert({
+      chatId: String(ctx.chat.id),
+      messageId: String(ctx.msg.message_id),
+      ...MediaTrackerCommand.author(ctx),
+      mediaType,
+      firstMessageId: String(min),
+      previousMessageId: String(max),
+      copies: matches.length,
+      similarity: Math.max(...matches.map((match) => match.similarity)),
+      sentAt: new Date(ctx.msg.date * 1000),
+    });
+  }
+
 
   /**
    * Stores a new `/searchmedia` query with its embedding. The same query asked
@@ -512,6 +563,13 @@ export class MediaTrackerCommand extends Command {
     return error instanceof errors.RPCError && error.errorMessage === 'FILE_REFERENCE_EXPIRED';
   }
 
+  /** An imported media row with who posted it and when, as a live one has them */
+  private static postedBy(row: ChatPhotoMessage, message: Api.Message): ChatPhotoMessage {
+    row.userId = message.senderId ? message.senderId.toString() : null;
+    row.sentAt = new Date(message.date * 1000);
+    return row;
+  }
+
   /**
    * Process a video message from Telegram API and return ChatPhotoMessage entities
    */
@@ -710,7 +768,7 @@ export class MediaTrackerCommand extends Command {
 
             const chatPhotoMessages = await this.processVideoFromApi(message.video, chatId, message.id, lastMessageId);
             if (chatPhotoMessages.length > 0) {
-              await this.dataSource.manager.save(chatPhotoMessages);
+              await this.dataSource.manager.save(chatPhotoMessages.map((row) => MediaTrackerCommand.postedBy(row, message)));
               this.countAdded(added, 'videos');
             }
           } catch (e) {
@@ -721,7 +779,7 @@ export class MediaTrackerCommand extends Command {
             const photo = message.photo as Api.Photo;
             const chatPhotoMessage = await this.processPhotoFromApi(photo, chatId, message.id, lastMessageId);
             if (chatPhotoMessage) {
-              await this.dataSource.manager.save(chatPhotoMessage);
+              await this.dataSource.manager.save(MediaTrackerCommand.postedBy(chatPhotoMessage, message));
               this.countAdded(added, 'photos');
             }
           } catch (e) {
@@ -763,6 +821,42 @@ export class MediaTrackerCommand extends Command {
   /** Lets the search page in progress finish; a history import is not waited for, it runs for hours */
   async dispose() {
     clearInterval(this.searchCleanupTimer);
+    clearInterval(this.bayanStatsTimer);
     await this.searchPages.close();
   }
+}
+
+/** The monthly bayan statistics' store (docs/media.md#bayans), with the chat's side given */
+export function bayanStatsPort(dataSource: DataSource, send: BayanStatsPort['send']): BayanStatsPort {
+  const query = <T>(sql: string, params: unknown[]) => dataSource.query<T>(sql, params);
+  return {
+    chats: (since) =>
+      query(
+        `SELECT DISTINCT bayan."chatId", state."timeZone", state."bayanStatsMonth" AS "postedMonth",
+           state."mediaTrackedSince" AS "trackedSince"
+         FROM media_repeat bayan LEFT JOIN chat_state state ON state."chatId" = bayan."chatId"
+         WHERE bayan."sentAt" >= $1`,
+        [since],
+      ),
+    bayans: (chatId, from, to) =>
+      query<BayanRow[]>(
+        `SELECT "messageId", "authorId", "authorName", "firstMessageId", "previousMessageId", copies FROM media_repeat
+         WHERE "chatId" = $1 AND "sentAt" >= $2 AND "sentAt" < $3 ORDER BY id`,
+        [chatId, from, to],
+      ),
+    mediaCount: async (chatId, from, to) => {
+      const [row] = await query<{ count: number }[]>(
+        `SELECT count(DISTINCT "messageId")::int AS count FROM chat_photo_message
+         WHERE "chatId" = $1 AND "sentAt" >= $2 AND "sentAt" < $3`,
+        [chatId, from, to],
+      );
+      return row.count;
+    },
+    markPosted: async (chatId, month) => {
+      await dataSource
+        .getRepository(ChatState)
+        .upsert({ chatId, bayanStatsMonth: month }, { conflictPaths: ['chatId'], skipUpdateIfNoValuesChanged: true });
+    },
+    send,
+  };
 }

@@ -11,3 +11,8 @@ export function getLinkChatId(chatId: number): number {
 export function messageLink(chatId: number, messageId: number | string): string {
   return `https://t.me/c/${getLinkChatId(chatId)}/${messageId}`;
 }
+
+/** The link to a message, if it has one: a basic group's messages have none */
+export function supergroupMessageLink(chatId: string, messageId: number | string | null): string | null {
+  return messageId !== null && chatId.startsWith('-100') ? messageLink(Number(chatId), messageId) : null;
+}

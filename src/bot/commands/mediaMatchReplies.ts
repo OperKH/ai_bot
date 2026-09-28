@@ -23,6 +23,27 @@ export interface MatchReplyPort {
   forget(messageId: string): Promise<void>;
 }
 
+/**
+ * The times the chat sees a bayan that make its jubilee, each with its own emoji: silver at 25, gold at 50, a
+ * relic at 1000 (docs/media.md#bayans)
+ */
+const JUBILEES = new Map([
+  [10, '🎉'],
+  [25, '🥈'],
+  [50, '🥇'],
+  [100, '💯'],
+  [250, '🏆'],
+  [500, '👑'],
+  [1000, '🗿'],
+]);
+
+/** The header of the "seen it before" thread, a jubilee's when this copy is one */
+export function duplicateHeader(copiesBefore: number): string {
+  const time = copiesBefore + 1;
+  const emoji = JUBILEES.get(time);
+  return emoji ? `${emoji} Ювілейний баян: це вже ${time}-й раз!` : '🕵️‍♀️ Здається, я це вже десь бачив...';
+}
+
 /** Captions of the "seen it before" replies, in the order they are shown */
 const DUPLICATE_VARIANTS = ['ось тут', 'ще тут', 'і ось', 'навіть це', 'і оце щось схоже'];
 
@@ -52,16 +73,17 @@ async function replyToMatch(
 /**
  * The "seen it before" thread under a new photo or video: up to `limit` of the
  * earlier messages in `matches` (best first) that still exist. If none does, the
- * header goes too, so nobody is called out without the evidence.
+ * header goes too, so nobody is called out without the evidence. Returns how many
+ * were shown: none means no bayan.
  */
 export async function replyWithDuplicates(
   port: MatchReplyPort,
   messageId: number,
   matches: MediaMatch[],
   limit: number,
-): Promise<void> {
-  if (matches.length === 0) return;
-  const headerId = await port.send('🕵️‍♀️ Здається, я це вже десь бачив...', messageId);
+): Promise<number> {
+  if (matches.length === 0) return 0;
+  const headerId = await port.send(duplicateHeader(matches.length), messageId);
   let shown = 0;
   for (const match of matches) {
     if (shown === limit) break;
@@ -71,6 +93,7 @@ export async function replyWithDuplicates(
     }
   }
   if (shown === 0) await port.delete(headerId);
+  return shown;
 }
 
 /** One page of `/searchmedia` results */

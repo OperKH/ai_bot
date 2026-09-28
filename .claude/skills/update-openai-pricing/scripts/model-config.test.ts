@@ -59,7 +59,7 @@ describe('reading the configured model', () => {
   it('finds it in every declared kind of location', (t: TestContext) => {
     t.assert.strictEqual(readModel(ENV, at('.env'), 'OPENAI_MODEL'), 'gpt-5-mini');
     t.assert.strictEqual(readModel(CONFIG, at('src/config/config.service.ts'), 'OPENAI_MODEL'), 'gpt-5-mini');
-    t.assert.strictEqual(readModel(DOCS, at('CLAUDE.md'), 'OPENAI_MODEL'), 'gpt-5-mini');
+    t.assert.strictEqual(readModel(DOCS, at('docs/configuration.md'), 'OPENAI_MODEL'), 'gpt-5-mini');
   });
 
   it('keeps the two model variables apart', (t: TestContext) => {
@@ -78,10 +78,10 @@ describe('reading the configured model', () => {
 
   it('collapses agreeing places and surfaces disagreement', (t: TestContext) => {
     const reading = (path: string, model: string | null) => ({ location: at(path), model });
-    t.assert.deepStrictEqual(currentModels([reading('.env', 'gpt-5-mini'), reading('CLAUDE.md', 'gpt-5-mini')]), [
+    t.assert.deepStrictEqual(currentModels([reading('.env', 'gpt-5-mini'), reading('docs/configuration.md', 'gpt-5-mini')]), [
       'gpt-5-mini',
     ]);
-    t.assert.deepStrictEqual(currentModels([reading('.env', 'gpt-5.6-luna'), reading('CLAUDE.md', 'gpt-5-mini')]), [
+    t.assert.deepStrictEqual(currentModels([reading('.env', 'gpt-5.6-luna'), reading('docs/configuration.md', 'gpt-5-mini')]), [
       'gpt-5.6-luna',
       'gpt-5-mini',
     ]);
@@ -103,7 +103,7 @@ describe('rewriting the configured model', () => {
     t.assert.match(config.text, /OPENAI_MODEL: process\.env\.OPENAI_MODEL \|\| 'gpt-5\.6-luna',/);
     t.assert.match(config.text, /OPENAI_VISION_MODEL: process\.env\.OPENAI_VISION_MODEL \|\| 'gpt-5-mini',/);
 
-    const docs = replaceModel(DOCS, at('CLAUDE.md'), 'OPENAI_MODEL', 'gpt-5.6-luna');
+    const docs = replaceModel(DOCS, at('docs/configuration.md'), 'OPENAI_MODEL', 'gpt-5.6-luna');
     t.assert.match(docs.text, /- `OPENAI_MODEL`: Model to use \(default: gpt-5\.6-luna\)/);
     t.assert.match(docs.text, /\(default 3\)/, 'unrelated defaults untouched');
   });
@@ -174,7 +174,7 @@ describe('carrying the reasoning effort onto another model', () => {
     t.assert.match(rewritten.text, /reasoningEffort\(process\.env\.OPENAI_VISION_REASONING_EFFORT, 'none'\)/);
 
     const docs = '- `OPENAI_REASONING_EFFORT`: Effort for summarization and aggregation (default: low)';
-    t.assert.strictEqual(readModel(docs, at('CLAUDE.md'), 'OPENAI_REASONING_EFFORT'), 'low');
+    t.assert.strictEqual(readModel(docs, at('docs/configuration.md'), 'OPENAI_REASONING_EFFORT'), 'low');
   });
 
   it('does not confuse the vision variable with the plain one', (t: TestContext) => {
@@ -188,6 +188,10 @@ describe('carrying the reasoning effort onto another model', () => {
   it('pairs each model variable with the effort that governs it', (t: TestContext) => {
     t.assert.strictEqual(EFFORT_FOR.OPENAI_MODEL, 'OPENAI_REASONING_EFFORT');
     t.assert.strictEqual(EFFORT_FOR.OPENAI_VISION_MODEL, 'OPENAI_VISION_REASONING_EFFORT');
+    t.assert.strictEqual(EFFORT_FOR.OPENAI_CROW_MODEL, 'OPENAI_CROW_REASONING_EFFORT');
+    t.assert.strictEqual(EFFORT_FOR.OPENAI_CROW_ARC_MODEL, 'OPENAI_CROW_ARC_REASONING_EFFORT');
+    t.assert.strictEqual(EFFORT_FOR.OPENAI_CROW_TALK_MODEL, 'OPENAI_CROW_TALK_REASONING_EFFORT');
+    t.assert.strictEqual(EFFORT_FOR.OPENAI_CROW_TEXT_MODEL, 'OPENAI_CROW_TEXT_REASONING_EFFORT');
   });
 });
 

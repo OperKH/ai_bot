@@ -15,5 +15,6 @@
     "erasableSyntaxOnly": true,
     "verbatimModuleSyntax": true
   },
-  "include": ["*.ts"]
+  "include": ["*.ts"],
+  "exclude": ["crow-worker.ts"]
 }

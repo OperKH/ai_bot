@@ -55,7 +55,7 @@ export async function checkVectorExtensions(dataSource: DataSource): Promise<voi
       if ((lists === 0) !== (fitting === 0) || lists > fitting * 2 || lists < fitting / 2) {
         console.warn(
           `Vector index ${name} has ${lists || 'no'} partitions for about ${rows} rows, ${fitting || 'none'} would fit: ` +
-            'rebuild it as "Vector index layout" in CLAUDE.md describes',
+            'rebuild it as "Vector index layout" in docs/database.md describes',
         );
       }
     }

@@ -19,6 +19,7 @@
   "typescript.tsdk": "node_modules/typescript/lib",
   "cSpell.language": "en,uk",
   "cSpell.words": [
+    "bayan",
     "Distil",
     "distilbert",
     "dtype",
@@ -26,8 +27,10 @@
     "huggingface",
     "LANGFUSE",
     "onnx",
+    "Optout",
     "pretrained",
     "typeorm",
+    "unsnoozed",
     "vchord",
     "vchordrq",
     "Xenova"

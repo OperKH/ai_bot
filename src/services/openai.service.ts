@@ -2,6 +2,7 @@ import OpenAI from 'openai';
 import { observeOpenAI } from '@langfuse/openai';
 import { z } from 'zod';
 import { zodResponseFormat } from 'openai/helpers/zod';
+import type { ReasoningEffort } from 'openai/resources/shared';
 import { ConfigService } from '../config/config.service.js';
 
 export const SummarizationResultSchema = z.object({
@@ -196,14 +197,24 @@ function countMessagesPerUser(formattedMessages: string): Map<string, number> {
   return counts;
 }
 
+/**
+ * Whether OpenAI refused a call because the account has no money left — the
+ * prepaid balance or a spending limit. It comes as a 429, like a rate limit,
+ * but retrying does not help: only a top-up does.
+ */
+export function isQuotaError(error: unknown): boolean {
+  return error instanceof OpenAI.APIError && (error.code === 'insufficient_quota' || error.type === 'insufficient_quota');
+}
+
 export class OpenAIService {
   private static instance: OpenAIService;
   private static readonly LOG_PREFIX = '[OpenAI]';
   private rawClient: OpenAI;
   private configService = ConfigService.getInstance();
 
-  private logUsage(method: string, model: string, usage: OpenAI.CompletionUsage | undefined): void {
-    if (!usage) return;
+  /** Logs the tokens and the cost of a call and returns the cost, in USD (0 for a model without a price) */
+  private logUsage(method: string, model: string, usage: OpenAI.CompletionUsage | undefined): number {
+    if (!usage) return 0;
     const pricing = MODEL_PRICING[model] || { input: 0, cached: 0, output: 0 };
     const cachedTokens = usage.prompt_tokens_details?.cached_tokens ?? 0;
     const uncachedTokens = usage.prompt_tokens - cachedTokens;
@@ -215,10 +226,40 @@ export class OpenAIService {
     console.log(
       `${OpenAIService.LOG_PREFIX} ${method} | model: ${model} | tokens: ${usage.prompt_tokens}${cacheInfo} in / ${usage.completion_tokens} out | cost: $${cost.toFixed(6)}`,
     );
+    return cost;
   }
 
-  private getClient(generationName: string): OpenAI {
-    return observeOpenAI(this.rawClient, { generationName });
+  /**
+   * A call on the client traced under its generation's `name`, awaited through `watch`: the client is reached
+   * only here, so no call misses an empty balance
+   */
+  private call<T>(name: string, run: (client: OpenAI) => Promise<T>): Promise<T> {
+    return this.watch(run(observeOpenAI(this.rawClient, { generationName: name })));
+  }
+
+  private readonly quotaListeners: ((error: unknown) => void)[] = [];
+
+  /** Called when a call fails because the account has no money left; the call still fails */
+  onQuotaExhausted(listener: (error: unknown) => void): void {
+    this.quotaListeners.push(listener);
+  }
+
+  /** Awaits a call and tells the listeners when it failed for an empty balance */
+  private async watch<T>(call: Promise<T>): Promise<T> {
+    try {
+      return await call;
+    } catch (e) {
+      if (isQuotaError(e)) {
+        for (const listener of this.quotaListeners) {
+          try {
+            listener(e);
+          } catch (listenerError) {
+            console.error(`${OpenAIService.LOG_PREFIX} A quota listener failed:`, listenerError);
+          }
+        }
+      }
+      throw e;
+    }
   }
 
   private constructor() {
@@ -229,6 +270,36 @@ export class OpenAIService {
       apiKey,
       ...(baseURL ? { baseURL } : {}),
     });
+  }
+
+  /**
+   * One structured call: the reply parsed by `schema`, traced in Langfuse under
+   * `name` and priced like every other call here. The cost comes back too, so a
+   * caller can keep to a budget.
+   */
+  async parse<T>(request: {
+    name: string;
+    /** Names the schema in the request: letters, digits, `_` and `-` only */
+    schemaName: string;
+    model: string;
+    reasoningEffort: ReasoningEffort;
+    system: string;
+    user: string;
+    schema: z.ZodType<T>;
+  }): Promise<{ result: T; costUsd: number }> {
+    const response = await this.call(request.name, (client) => client.chat.completions.parse({
+      model: request.model,
+      reasoning_effort: request.reasoningEffort,
+      messages: [
+        { role: 'system', content: request.system },
+        { role: 'user', content: request.user },
+      ],
+      response_format: zodResponseFormat(request.schema, request.schemaName),
+    }));
+    const costUsd = this.logUsage(request.name, request.model, response.usage);
+    const message = response.choices[0].message;
+    if (!message.parsed) throw new Error(`${request.name}: no result (${message.refusal ?? 'nothing parsed'})`);
+    return { result: message.parsed as T, costUsd };
   }
 
   public static getInstance(): OpenAIService {
@@ -259,7 +330,7 @@ export class OpenAIService {
       })
       .join('\n');
 
-    const response = await this.getClient('Summarize Messages').chat.completions.parse({
+    const response = await this.call('Summarize Messages', (client) => client.chat.completions.parse({
       model,
       reasoning_effort: this.configService.get('OPENAI_REASONING_EFFORT'),
       messages: [
@@ -267,7 +338,7 @@ export class OpenAIService {
         { role: 'user', content: `Ось історія чату для аналізу:\n\n${formattedMessages}` },
       ],
       response_format: zodResponseFormat(SummarizationResultSchema, 'chat_summary'),
-    });
+    }));
     this.logUsage('summarizeMessages', model, response.usage);
 
     const result = response.choices[0].message.parsed;
@@ -309,7 +380,7 @@ export class OpenAIService {
       .map((r, i) => `--- Період ${i + 1} ---\n${JSON.stringify(r, null, 2)}`)
       .join('\n\n');
 
-    const response = await this.getClient('Aggregate Summarization Results').chat.completions.parse({
+    const response = await this.call('Aggregate Summarization Results', (client) => client.chat.completions.parse({
       model,
       reasoning_effort: this.configService.get('OPENAI_REASONING_EFFORT'),
       messages: [
@@ -366,7 +437,7 @@ export class OpenAIService {
         },
       ],
       response_format: zodResponseFormat(SummarizationResultSchema, 'aggregated_summary'),
-    });
+    }));
     this.logUsage('aggregateSummarizationResults', model, response.usage);
 
     const result = response.choices[0].message.parsed;
@@ -394,7 +465,7 @@ export class OpenAIService {
   async describeImage(imageUrl: string): Promise<string> {
     const model = this.configService.get('OPENAI_VISION_MODEL');
 
-    const response = await this.getClient('Describe Image').chat.completions.create({
+    const response = await this.call('Describe Image', (client) => client.chat.completions.create({
       model,
       reasoning_effort: this.configService.get('OPENAI_VISION_REASONING_EFFORT'),
       messages: [
@@ -412,7 +483,7 @@ export class OpenAIService {
         },
       ],
       max_completion_tokens: this.configService.get('OPENAI_MAX_DESCRIBE_IMAGE_TOKENS'),
-    });
+    }));
 
     const result = response.choices[0].message.content || '';
 

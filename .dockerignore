@@ -5,6 +5,7 @@ dist
 Dockerfile
 eslint.config.js
 *.md
+docs
 
 .*
 

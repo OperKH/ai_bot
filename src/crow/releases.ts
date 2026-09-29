@@ -7,7 +7,7 @@ import type { CrowJobDefinition } from './jobs';
 import { gameKey, type NintendoRelease } from './sources/nintendoStore';
 import type { RadarRequest, ReleasesResult, TalkResult } from './prompts';
 import type { CrowStore } from './store';
-import { dateLabel, weekdayDateLabel } from './words';
+import { clip, dateLabel, weekdayDateLabel } from './words';
 
 const MINUTE = 60_000;
 const DAY = 24 * 60 * MINUTE;
@@ -93,10 +93,12 @@ type Roundup = { sourceId: string; title: string; summary: string };
 
 /** The roundups as the model reads them, each labelled — `[R1]`… — and with the platforms it is about */
 export function roundupMaterials(roundups: readonly Roundup[]): string {
-  return roundups
-    .map((item, i) => `[R${i + 1}] Джерело: добірка ігор для ${ROUNDUPS[item.sourceId]?.platforms.join(' і ') ?? 'різних платформ'}\nЗаголовок: ${item.title}\n${item.summary}`)
-    .join(MATERIALS_SEPARATOR)
-    .slice(0, MATERIALS_MAX);
+  return clip(
+    roundups
+      .map((item, i) => `[R${i + 1}] Джерело: добірка ігор для ${ROUNDUPS[item.sourceId]?.platforms.join(' і ') ?? 'різних платформ'}\nЗаголовок: ${item.title}\n${item.summary}`)
+      .join(MATERIALS_SEPARATOR),
+    MATERIALS_MAX,
+  );
 }
 
 /**

@@ -36,6 +36,15 @@ export function catName(
   return firstName?.trim() || username || `кіт ${id}`;
 }
 
+/**
+ * The text cut to `max` UTF-16 units, without cutting a character of two — an emoji — in half: its lone half is
+ * not valid Unicode, and the OpenAI API refuses the whole request with it (400 `invalid_json`)
+ */
+export function clip(text: string, max: number): string {
+  const cut = text.slice(0, max);
+  return /[\uD800-\uDBFF]$/.test(cut) ? cut.slice(0, -1) : cut;
+}
+
 /** A post of hers as the models get her memory: «(5 днів тому) the text» */
 export function memoryLine(post: { sentAt: Date; text: string }, now: Date): string {
   return `(${agoLabel(now.getTime() - post.sentAt.getTime())}) ${post.text}`;

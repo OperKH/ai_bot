@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { agoLabel, dateLabel, dayLabel, plural } from './words';
+import { agoLabel, clip, dateLabel, dayLabel, plural } from './words';
 
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
@@ -56,5 +56,13 @@ describe('dateLabel', () => {
   it('says a date with the month in the genitive', () => {
     assert.equal(dateLabel(Temporal.PlainDate.from('2026-11-19')), '19 листопада');
     assert.equal(dateLabel(Temporal.PlainDate.from('2027-01-01')), '1 січня');
+  });
+});
+
+describe('clip', () => {
+  it('cuts a text to its length, and drops the half of an emoji the cut would leave', () => {
+    assert.equal(clip('Game out now', 4), 'Game');
+    assert.equal(clip('Game out 🎮 now', 11), 'Game out 🎮');
+    assert.equal(clip('Game out 🎮 now', 10), 'Game out ');
   });
 });

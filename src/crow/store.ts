@@ -53,7 +53,7 @@ import { contentHash, type FeedItem, type GameListing } from './sources/feed';
 import type { SourceDefinition } from './sources/source';
 import type { StoryQuiz } from './quiz';
 import type { ToldStory } from './toldYou';
-import { agoLabel } from './words';
+import { agoLabel, clip } from './words';
 
 const HOUR = 3_600_000;
 /** The bets a cat must have placed in the year to be its best bettor */
@@ -248,10 +248,10 @@ const TALK_MESSAGE_MAX = 300;
 const talkMessage = (row: Pick<ChatMessage, 'userId' | 'userName' | 'userFirstName' | 'textContent' | 'mediaDescription'>) => ({
   userId: row.userId,
   name: row.userFirstName?.trim() || row.userName || 'кіт',
-  text: [row.textContent, row.mediaDescription ? `[фото: ${row.mediaDescription}]` : '']
-    .filter(Boolean)
-    .join(' ')
-    .slice(0, TALK_MESSAGE_MAX),
+  text: clip(
+    [row.textContent, row.mediaDescription ? `[фото: ${row.mediaDescription}]` : ''].filter(Boolean).join(' '),
+    TALK_MESSAGE_MAX,
+  ),
 });
 
 /** A story the chat heard this week, for the weekly digest */

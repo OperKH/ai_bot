@@ -61,7 +61,7 @@ forwards are heard by meaning too (EmbeddingGemma). GIFs come later.
 | [weekly.ts](../../src/crow/weekly.ts) | The weekly digest: its Friday evening, the week's shiniest news, the winner's checks, the table and the vote, the `weekly` job |
 | [bets.ts](../../src/crow/bets.ts) | The bets: the proposal's checks, the times and the poll, the place in a chain, the outcome and its table, the `bets` job |
 | [events.ts](../../src/crow/events.ts), [sources/streamSources.ts](../../src/crow/sources/streamSources.ts) | The streams: their sources and YouTube's schedule, the start of an announcement in its zone, the reminder by day or by night, the texts, moving and calling off, the `streams` job |
-| [words.ts](../../src/crow/words.ts) | Ukrainian counts, «how long ago», the days and dates in words |
+| [words.ts](../../src/crow/words.ts) | Ukrainian counts, «how long ago», the days and dates in words; `clip`, a text's cut that keeps an emoji whole, for every text cut for a model, for Telegram or for the database |
 | [arcWriter.ts](../../src/crow/arcWriter.ts) | Writing an arc: the request with its outline, the checks, one rewrite — shared by the pipeline and the skill's A/B |
 | [arcOutline.ts](../../src/crow/arcOutline.ts), [arcValidation.ts](../../src/crow/arcValidation.ts) | The shape of an arc; the checks of her texts, and the one rewrite every text gets (`writeChecked`) |
 | [roster.ts](../../src/crow/roster.ts), [budget.ts](../../src/crow/budget.ts), [images.ts](../../src/crow/images.ts) | The labs' current models; the daily budget; story pictures |
@@ -91,7 +91,7 @@ the checks of an arc, the roster update, the daily budget; when a chat's morning
 the change of time), which news a digest tells, its checks and its one rewrite, the `morning` job on a fake
 store; when a chat's evening comes, the goodbye's checks, the `evening` job — whether a day was worth a
 goodbye, one an evening, and after a downtime; the goodbye last and silent, past the limits; Ukrainian counts
-and «how long ago»; what the profile reads and keeps, the jabs' checks and their one
+and «how long ago», a text's cut that keeps an emoji whole; what the profile reads and keeps, the jabs' checks and their one
 rewrite, where a jab goes in a chain, whom the jabs may aim at, the `profile` job and the introduction; in a
 talk, which messages are for her, calling her by name, the aliases with endings and typos, the limits and the
 end of a thread, the gate and the answer with its checks and rewrite, and the conversation on a fake store —

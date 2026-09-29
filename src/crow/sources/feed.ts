@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { parseXml, XmlElement } from '@rgrove/parse-xml';
+import { clip } from '../words';
 
 /** How the bot introduces itself to the sources it polls */
 export const BOT_USER_AGENT = 'SightScribeBot/1.3 (+https://github.com/OperKH/ai_bot)';
@@ -152,7 +153,7 @@ export async function readPage(url: string): Promise<{ text: string; image: stri
     if (page.notModified) return null;
     const html = page.body;
     const main = /<(article|main)\b[\s\S]*?<\/\1>/i.exec(html)?.[0] ?? html;
-    return { text: htmlToText(main).slice(0, PAGE_TEXT_MAX), image: metaContent(html, 'og:image') };
+    return { text: clip(htmlToText(main), PAGE_TEXT_MAX), image: metaContent(html, 'og:image') };
   } catch (e) {
     console.warn(`[Crow] Could not read ${url}:`, e instanceof Error ? e.message : e);
     return null;
@@ -197,7 +198,7 @@ function date(value: string): Date | null {
 }
 
 function summaryOf(html: string): string {
-  return htmlToText(html).slice(0, SUMMARY_MAX);
+  return clip(htmlToText(html), SUMMARY_MAX);
 }
 
 function rssItem(item: XmlElement): FeedItem | null {

@@ -7,7 +7,7 @@ import { nextBudgetDay } from './budget';
 import type { BudgetReport } from './pipeline';
 import { OPENAI_BILLING_URL } from '../bot/ownerAlerts';
 import { zoneLabel } from '../bot/commands/timeZones';
-import { plural } from './words';
+import { clip, plural } from './words';
 
 /** A button of the crow: the `/crow` menu, or «Кш!» under a post */
 export type CrowAction =
@@ -278,7 +278,7 @@ export function ownerKeyboard(withReset: boolean): InlineKeyboard {
 /** The owner's buttons under a bet the crow could not settle: an option each, or calling it off */
 export function betOwnerKeyboard(pollId: number, options: readonly string[]): InlineKeyboard {
   const keyboard = new InlineKeyboard();
-  options.forEach((option, i) => keyboard.text(`✅ ${option}`.slice(0, 60), `crow:bet:${pollId}:${i}`).row());
+  options.forEach((option, i) => keyboard.text(clip(`✅ ${option}`, 60), `crow:bet:${pollId}:${i}`).row());
   return keyboard.text('🚫 Скасувати ставку', `crow:bet:${pollId}:x`);
 }
 

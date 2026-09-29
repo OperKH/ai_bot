@@ -1,4 +1,5 @@
 import { type FeedItem, htmlToText, parseFeed, SUMMARY_MAX } from './feed';
+import { clip } from '../words';
 
 const CLAUDE_CODE_CHANGELOG = 'https://code.claude.com/docs/en/changelog';
 
@@ -71,10 +72,7 @@ export function parseQwenArticles(json: string): FeedItem[] {
         title: article.title,
         url: `https://qwen.ai/blog?id=${encodeURIComponent(article.path)}`,
         // The post without the site's navigation around it
-        summary: htmlToText(/<article\b[\s\S]*?<\/article>/i.exec(article.content)?.[0] ?? article.content).slice(
-          0,
-          SUMMARY_MAX,
-        ),
+        summary: clip(htmlToText(/<article\b[\s\S]*?<\/article>/i.exec(article.content)?.[0] ?? article.content), SUMMARY_MAX),
         publishedAt: date && !Number.isNaN(Date.parse(date)) ? new Date(date) : null,
         imageUrl: article.extra?.cover_small ?? null,
       };
@@ -97,7 +95,7 @@ export function parseClaudeCodeCommands(markdown: string): FeedItem[] {
         key: name,
         title: `New Claude Code command ${name}`,
         url: CLAUDE_CODE_CHANGELOG,
-        summary: markdownToText(purpose).slice(0, SUMMARY_MAX),
+        summary: clip(markdownToText(purpose), SUMMARY_MAX),
         publishedAt: null,
         imageUrl: null,
       },
@@ -134,10 +132,12 @@ export function parseGeminiCliAnnouncements(markdown: string): FeedItem[] {
         key: version,
         title: `Gemini CLI ${version}`,
         url: `https://github.com/google-gemini/gemini-cli/releases/tag/${version}`,
-        summary: markdownToText(body)
-          .replace(/\n(?!- )/g, ' ')
-          .replace(/\s*\((?:#\d+|@)[^()]*\)/g, '')
-          .slice(0, SUMMARY_MAX),
+        summary: clip(
+          markdownToText(body)
+            .replace(/\n(?!- )/g, ' ')
+            .replace(/\s*\((?:#\d+|@)[^()]*\)/g, ''),
+          SUMMARY_MAX,
+        ),
         publishedAt: new Date(`${day}T00:00:00Z`),
         imageUrl: null,
       },

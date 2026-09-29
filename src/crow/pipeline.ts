@@ -34,7 +34,7 @@ import type { CrowStore, ItemPlacement, SubscribedChat } from './store';
 import { gameStoryVerdict, storyVerdict, type StoryVerdict } from './stories';
 import { MAX_RUMOR_UPDATE_LENGTH, writeRumorUpdate } from './toldYou';
 import { BETS_PER_WEEK, MAX_BET_DAYS, MIN_BET_DAYS, withBet, writeBet } from './bets';
-import { yearDateLabel } from './words';
+import { clip, yearDateLabel } from './words';
 import { type ConditionalState, type FeedItem, fetchText, parseFeed, parseSitemap, readPage } from './sources/feed';
 import type { SourceDefinition } from './sources/source';
 
@@ -212,7 +212,7 @@ export class CrowPipeline {
       source: source?.name ?? item.sourceId,
       official: source?.official !== undefined,
       title: item.title,
-      summary: item.summary.slice(0, SORT_SUMMARY_MAX),
+      summary: clip(item.summary, SORT_SUMMARY_MAX),
       url: item.url,
     };
   }
@@ -375,7 +375,7 @@ export class CrowPipeline {
     const { result: matched, costUsd: matchCost } = await this.llm.matchStories(
       doubtful.map(({ entry, storyId }, index) => ({
         index,
-        entry: `${entry.item.title}. ${entry.item.summary.slice(0, MATCH_SUMMARY_MAX)}`,
+        entry: `${entry.item.title}. ${clip(entry.item.summary, MATCH_SUMMARY_MAX)}`,
         story: storyText(storyId),
       })),
     );
@@ -568,7 +568,7 @@ export class CrowPipeline {
           .join('\n'),
       );
     }
-    return { text: parts.join('\n\n---\n\n').slice(0, MATERIALS_MAX), imageUrl };
+    return { text: clip(parts.join('\n\n---\n\n'), MATERIALS_MAX), imageUrl };
   }
 
   private async writeStory(

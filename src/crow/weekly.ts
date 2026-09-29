@@ -16,7 +16,7 @@ import type { Priced } from './crowLlm';
 import { type CrowJobDefinition, oncePerChat } from './jobs';
 import type { WeeklyRequest, WeeklyResult } from './prompts';
 import type { CrowStore, SmartestCat, WeekStory } from './store';
-import { dayLabel, memoryLine, plural } from './words';
+import { clip, dayLabel, memoryLine, plural } from './words';
 
 const LOG_PREFIX = '[Crow]';
 const MINUTE = 60_000;
@@ -155,13 +155,13 @@ export function voteOptions(stories: readonly { name: string; day: string }[]): 
   const numbered = new Map<string, number>();
   return stories.map((story) => {
     const twins = stories.filter((other) => other.name === story.name);
-    if (twins.length === 1) return story.name.slice(0, OPTION_MAX);
+    if (twins.length === 1) return clip(story.name, OPTION_MAX);
     const sameDay = twins.filter((other) => other.day === story.day).length > 1;
     const key = `${story.name}\n${story.day}`;
     const n = (numbered.get(key) ?? 0) + 1;
     numbered.set(key, n);
     const tag = ` (${story.day}${sameDay ? `, ${n}` : ''})`;
-    return story.name.slice(0, OPTION_MAX - tag.length) + tag;
+    return clip(story.name, OPTION_MAX - tag.length) + tag;
   });
 }
 

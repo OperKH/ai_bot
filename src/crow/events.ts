@@ -13,7 +13,7 @@ import type { StreamResult, StreamTextsRequest, StreamTextsResult } from './prom
 import { BROWSER_HEADERS, fetchText, htmlToText, metaContent, parseFeed } from './sources/feed';
 import { redirectTarget, type StreamSource, youtubeUploads, youtubeVideos } from './sources/streamSources';
 import type { CrowStore, EventChat, EventPost, FoundEvent } from './store';
-import { dateLabel } from './words';
+import { clip, dateLabel } from './words';
 
 const LOG_PREFIX = '[Crow]';
 const MINUTE = 60_000;
@@ -317,7 +317,7 @@ export class CrowEvents {
     );
     for (const item of fresh) {
       if (!source.mayAnnounce(item)) continue;
-      const text = `${item.title}\n\n${item.summary.slice(0, PAGE_TEXT_MAX)}`;
+      const text = `${item.title}\n\n${clip(item.summary, PAGE_TEXT_MAX)}`;
       await this.read(source, item.url!, item.url!, item.publishedAt ?? now, text, now);
     }
     return { ...state, seen: [...seen, ...fresh.map((item) => item.key)].slice(-SEEN_KEPT) };
@@ -337,7 +337,7 @@ export class CrowEvents {
     ]
       .filter(Boolean)
       .join('\n\n');
-    await this.read(source, target, target, now, text.slice(0, PAGE_TEXT_MAX) || htmlToText(page.body).slice(0, PAGE_TEXT_MAX), now);
+    await this.read(source, target, target, now, clip(text || htmlToText(page.body), PAGE_TEXT_MAX), now);
     return { ...state, target };
   }
 

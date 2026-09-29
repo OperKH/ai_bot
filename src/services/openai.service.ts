@@ -292,8 +292,8 @@ export class OpenAIService {
       model: request.model,
       reasoning_effort: request.reasoningEffort,
       messages: [
-        { role: 'system', content: request.system },
-        { role: 'user', content: request.user },
+        { role: 'system', content: this.wellFormed(request.name, request.system) },
+        { role: 'user', content: this.wellFormed(request.name, request.user) },
       ],
       response_format: zodResponseFormat(request.schema, request.schemaName),
     }));
@@ -301,6 +301,16 @@ export class OpenAIService {
     const message = response.choices[0].message;
     if (!message.parsed) throw new Error(`${request.name}: no result (${message.refusal ?? 'nothing parsed'})`);
     return { result: message.parsed as T, costUsd };
+  }
+
+  /**
+   * A lone half of an emoji — a text cut past `clip`, a broken feed's entity — is not valid Unicode, and the API
+   * refuses the whole request with it (400 `invalid_json`), so it goes as «�», and the log says so
+   */
+  private wellFormed(name: string, text: string): string {
+    if (text.isWellFormed()) return text;
+    console.warn(`${OpenAIService.LOG_PREFIX} ${name}: a lone surrogate in the request, replaced`);
+    return text.toWellFormed();
   }
 
   public static getInstance(): OpenAIService {

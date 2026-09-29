@@ -17,7 +17,7 @@ import type { CrowJobDefinition } from './jobs';
 import type { PlannedJab } from './planning';
 import type { JabRequest, JabResult, ProfileResult } from './prompts';
 import type { CrowStore } from './store';
-import { catName, memoryLine } from './words';
+import { catName, clip, memoryLine } from './words';
 
 const LOG_PREFIX = '[Crow]';
 const HOUR = 3_600_000;
@@ -91,7 +91,7 @@ export function profileInput(
     const text = message.text.replace(/\s+/g, ' ').trim();
     if (!text || optedOut.has(message.userId)) continue;
     const name = catName(message.firstName, message.username, message.userId);
-    const line = `[${message.userId}] ${name}: ${text.slice(0, MESSAGE_MAX)}`;
+    const line = `[${message.userId}] ${name}: ${clip(text, MESSAGE_MAX)}`;
     if (chars + line.length > MESSAGES_MAX_CHARS) break;
     chars += line.length + 1;
     kept.push({ line, day: dayLine(message.at) });
@@ -108,7 +108,7 @@ export function profileInput(
 }
 
 const clean = (items: string[], max: number) =>
-  [...new Set(items.map((item) => item.trim()).filter(Boolean))].map((item) => item.slice(0, TOPIC_MAX)).slice(0, max);
+  [...new Set(items.map((item) => item.trim()).filter(Boolean))].map((item) => clip(item, TOPIC_MAX)).slice(0, max);
 
 /** The model's profile, kept to the cats it was built from and to its limits */
 export function cleanProfile(result: ProfileResult, people: ReadonlyMap<string, ProfilePerson>): CrowProfile {

@@ -276,6 +276,10 @@ reasoning mode of GPT-6 Luna, sorted as a new flagship, once took the place of a
   stays pending instead of failing, and the pipeline pauses for an hour (`pausedUntil` in its state), so it
   does not knock every two minutes. The owner hears of it from `OpenAIService` for the whole bot
   (`openai-quota`); «▶️ Запустити конвеєр» under that alert ends the pause at once, after a top-up.
+- **Half an emoji** — `slice` cutting a text between the two halves of one, or a broken feed's entity — is not
+  valid Unicode, and the API refuses the whole request with it (400 `invalid_json`), so a sorting batch would fail
+  on every run. The texts are cut with `clip` ([words.ts](../../src/crow/words.ts)), which keeps an emoji whole,
+  and `OpenAIService.parse` sends what still comes as «�», with a warning in the log.
 - **Pictures** ([images.ts](../../src/crow/images.ts)): the official page's `og:image` is downloaded,
   turned into a JPEG (1280 px wide) with `sharp` and kept in `data/crow/images/<story>.jpg` until the first
   post uploads it; the later posts and chats use its `file_id`. The daily `cleanup` forgets the pictures of

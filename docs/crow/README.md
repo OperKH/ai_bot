@@ -72,9 +72,9 @@ forwards are heard by meaning too (EmbeddingGemma). GIFs come later.
 | Variable | Default | What |
 | --- | --- | --- |
 | `OPENAI_CROW_MODEL`, `OPENAI_CROW_REASONING_EFFORT` | `gpt-6-luna`, `low` | Sorting the AI and the game news, whether a doubtful entry tells a game story's news, extracting facts, the chat's profile, the crow's store for talks, the week's releases, how a bet ended, the start of a stream in an announcement |
-| `OPENAI_CROW_ARC_MODEL`, `OPENAI_CROW_ARC_REASONING_EFFORT` | `gpt-6-sol`, `medium` | Writing the arcs; why sol — [pipeline.md](pipeline.md#models-and-costs) |
+| `OPENAI_CROW_ARC_MODEL`, `OPENAI_CROW_ARC_REASONING_EFFORT` | `gpt-6.1-sol`, `medium` | Writing the arcs; why sol — [pipeline.md](pipeline.md#models-and-costs) |
 | `OPENAI_CROW_TALK_MODEL`, `OPENAI_CROW_TALK_REASONING_EFFORT` | `gpt-6-luna`, `low` | What the crow says outside the arcs many times a day: her talks, «я ж казала» and the UPD, the bets, the streams |
-| `OPENAI_CROW_TEXT_MODEL`, `OPENAI_CROW_TEXT_REASONING_EFFORT` | `gpt-6-sol`, `low` | What the whole chat reads of her outside the arcs, a few calls a day: the morning and weekly digests, the evening goodbye, the jabs, the release radar, the quizzes, the reminders, the countdowns, a bet's outcome, her birthday word |
+| `OPENAI_CROW_TEXT_MODEL`, `OPENAI_CROW_TEXT_REASONING_EFFORT` | `gpt-6.1-sol`, `low` | What the whole chat reads of her outside the arcs, a few calls a day: the morning and weekly digests, the evening goodbye, the jabs, the release radar, the quizzes, the reminders, the countdowns, a bet's outcome, her birthday word |
 | `CROW_TALK_THRESHOLD`, `CROW_FORWARD_THRESHOLD` | 0.35, 0.78 | EmbeddingGemma's similarity from which a talk goes to the gate and a forward brings back a story ([configuration.md](../configuration.md#the-crows-embeddings)) |
 | `YOUTUBE_API_KEY` | unset — no YouTube | The YouTube Data API, for the start of the streams on the channels ([behavior.md](behavior.md#streams)) |
 | `OPENAI_CROW_DAILY_BUDGET_USD` | 1 | No new arcs past this spending of the pipeline in a UTC day |

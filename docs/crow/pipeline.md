@@ -287,28 +287,28 @@ reasoning mode of GPT-6 Luna, sorted as a new flagship, once took the place of a
 | --- | --- | --- | --- |
 | Sorting, a batch of 25 entries | `Sort Crow News` | `gpt-6-luna`, `low` | ≈ $0.002 |
 | Facts of a story | `Extract Crow Facts` | `gpt-6-luna`, `low` | $0.0003–0.0006 |
-| An arc | `Write Crow Arc` | `gpt-6-sol`, `medium` | $0.018–0.035, ≈ $0.025 on average |
+| An arc | `Write Crow Arc` | `gpt-6.1-sol`, `medium` | $0.014–0.036, ≈ $0.02 on average |
 | Its one rewrite, when the checks sent it back | `Rewrite Crow Arc` | the same | about as much again |
 | The crow's store for talks about a story | `Extract Crow Snippets` | `gpt-6-luna`, `low` | ≈ $0.0008 |
 | An answer in a talk, or a chime-in, and their rewrites | `Write Crow Reply`, `Rewrite Crow Reply`, `Write Crow Chime-In`, `Rewrite Crow Chime-In` | `gpt-6-luna`, `low` (`OPENAI_CROW_TALK_MODEL`) | $0.0003–0.0005 a message heard |
-| The jabs of a chat's arc, and their rewrite | `Write Crow Jabs`, `Rewrite Crow Jabs` | `gpt-6-sol`, `low` (`OPENAI_CROW_TEXT_MODEL`) | ≈ $0.006 a chat |
+| The jabs of a chat's arc, and their rewrite | `Write Crow Jabs`, `Rewrite Crow Jabs` | `gpt-6.1-sol`, `low` (`OPENAI_CROW_TEXT_MODEL`) | ≈ $0.006 a chat |
 | A chat's profile, once a week | `Build Crow Chat Profile` | `gpt-6-luna`, `low` | $0.001–0.006 |
-| A chat's morning digest | `Write Crow Morning Digest`, `Rewrite Crow Morning Digest` | `gpt-6-sol`, `low` (`OPENAI_CROW_TEXT_MODEL`) | ≈ $0.008 |
-| A chat's evening goodbye | `Write Crow Goodbye`, `Rewrite Crow Goodbye` | `gpt-6-sol`, `low` (`OPENAI_CROW_TEXT_MODEL`) | ≈ $0.006 |
+| A chat's morning digest | `Write Crow Morning Digest`, `Rewrite Crow Morning Digest` | `gpt-6.1-sol`, `low` (`OPENAI_CROW_TEXT_MODEL`) | ≈ $0.008 |
+| A chat's evening goodbye | `Write Crow Goodbye`, `Rewrite Crow Goodbye` | `gpt-6.1-sol`, `low` (`OPENAI_CROW_TEXT_MODEL`) | ≈ $0.006 |
 | «Я ж казала» to a forward or a link | `Write Crow Told You`, `Rewrite Crow Told You` | `gpt-6-luna`, `low` (`OPENAI_CROW_TALK_MODEL`) | ≈ $0.0002 |
 | The UPD to a rumor that came true, for every chat | `Write Crow Rumor Update`, `Rewrite Crow Rumor Update`, with `Extract Crow Facts` of the vendor's page | `gpt-6-luna`, `low` | ≈ $0.001 |
-| A chat's weekly digest | `Write Crow Weekly Digest`, `Rewrite Crow Weekly Digest` | `gpt-6-sol`, `low` (`OPENAI_CROW_TEXT_MODEL`) | ≈ $0.008 |
+| A chat's weekly digest | `Write Crow Weekly Digest`, `Rewrite Crow Weekly Digest` | `gpt-6.1-sol`, `low` (`OPENAI_CROW_TEXT_MODEL`) | ≈ $0.008 |
 | A bet on a story's dated event, or none | `Write Crow Bet`, `Rewrite Crow Bet` | `gpt-6-luna`, `low` (`OPENAI_CROW_TALK_MODEL`) | ≈ $0.0001, ≈ $0.0004 with a bet |
-| How a bet ended, and the crow's word on it | `Resolve Crow Bet` (`OPENAI_CROW_MODEL`, `gpt-6-luna`), `Write Crow Bet Outcome`, `Rewrite Crow Bet Outcome` | `gpt-6-sol`, `low` (`OPENAI_CROW_TEXT_MODEL`) | ≈ $0.006 |
+| How a bet ended, and the crow's word on it | `Resolve Crow Bet` (`OPENAI_CROW_MODEL`, `gpt-6-luna`), `Write Crow Bet Outcome`, `Rewrite Crow Bet Outcome` | `gpt-6.1-sol`, `low` (`OPENAI_CROW_TEXT_MODEL`) | ≈ $0.006 |
 | A stream in an organizer's announcement | `Extract Crow Stream` | `gpt-6-luna`, `low` (`OPENAI_CROW_MODEL`) | ≈ $0.0001 |
 | Sorting the game news, a batch of 25 entries | `Sort Crow Game News` | `gpt-6-luna`, `low` | ≈ $0.002; the 89 fresh entries of a day's saved feeds cost $0.005 |
 | Whether doubtful entries tell a game story's news, all of a run | `Match Crow Story` | `gpt-6-luna`, `low` | ≈ $0.0002 |
-| A mega story's quiz, and its rewrite | `Write Crow Quiz`, `Rewrite Crow Quiz` | `gpt-6-sol`, `low` (`OPENAI_CROW_TEXT_MODEL`) | $0.005–0.009 |
-| The reminder of a story's games, for every chat | `Write Crow Reminder`, `Rewrite Crow Reminder` | `gpt-6-sol`, `low` (`OPENAI_CROW_TEXT_MODEL`) | $0.002–0.007 |
-| Her word on her birthday in a chat | `Write Crow Birthday`, `Rewrite Crow Birthday` | `gpt-6-sol`, `low` (`OPENAI_CROW_TEXT_MODEL`) | ≈ $0.006 a chat a year |
-| A post of a countdown's mark, for every chat | `Write Crow Countdown`, `Rewrite Crow Countdown` | `gpt-6-sol`, `low` (`OPENAI_CROW_TEXT_MODEL`) | $0.002–0.007 a mark |
+| A mega story's quiz, and its rewrite | `Write Crow Quiz`, `Rewrite Crow Quiz` | `gpt-6.1-sol`, `low` (`OPENAI_CROW_TEXT_MODEL`) | $0.005–0.009 |
+| The reminder of a story's games, for every chat | `Write Crow Reminder`, `Rewrite Crow Reminder` | `gpt-6.1-sol`, `low` (`OPENAI_CROW_TEXT_MODEL`) | $0.002–0.007 |
+| Her word on her birthday in a chat | `Write Crow Birthday`, `Rewrite Crow Birthday` | `gpt-6.1-sol`, `low` (`OPENAI_CROW_TEXT_MODEL`) | ≈ $0.006 a chat a year |
+| A post of a countdown's mark, for every chat | `Write Crow Countdown`, `Rewrite Crow Countdown` | `gpt-6.1-sol`, `low` (`OPENAI_CROW_TEXT_MODEL`) | $0.002–0.007 a mark |
 | The week's releases from the roundups | `Extract Crow Releases` | `gpt-6-luna`, `low` (`OPENAI_CROW_MODEL`) | ≈ $0.0007 a week |
-| The release radar's word, for every chat | `Write Crow Release Radar`, `Rewrite Crow Release Radar` | `gpt-6-sol`, `low` (`OPENAI_CROW_TEXT_MODEL`) | ≈ $0.005 a week |
+| The release radar's word, for every chat | `Write Crow Release Radar`, `Rewrite Crow Release Radar` | `gpt-6.1-sol`, `low` (`OPENAI_CROW_TEXT_MODEL`) | ≈ $0.005 a week |
 | The crow's words about a stream, for every chat | `Write Crow Stream`, `Rewrite Crow Stream` | `gpt-6-luna`, `low` (`OPENAI_CROW_TALK_MODEL`) | ≈ $0.0003 |
 
 **Why sol for the arcs.** A blind A/B on 6 real AI stories (26.09.2026): luna, sol with the same prompt,
@@ -317,6 +317,13 @@ ranked the arcs by voice and humour and counted factual slips. Sol with the full
 12 judgements, and every one of its arcs could go to the chat as it was, against 7 of 12 for luna; it had
 one minor slip against luna's four. The shortened prompt made sol lose even to luna: its swearing got
 monotonous and a quarter of its posts opened with «Коти…». So the prompt is the same for both models.
+
+**Why gpt-6.1-sol.** The same A/B on the same six stories (29.09.2026), gpt-6-sol at `medium` against
+gpt-6.1-sol at `medium` and at `low`: gpt-6.1-sol `medium` won 10 of 12 judgements against gpt-6-sol and 9 of
+12 against its own `low`, came first in 9, had no factual slips, and all 12 of its arcs could go as they were.
+It reasons a third as much (≈ 400 tokens an arc against 1400) and reads its cache at half the price, so an
+arc costs about 30% less. On the texts outside the arcs, both at `low`, gpt-6.1-sol won 39 of 48 judgements
+at the same price and swore more naturally; `low` stays, as `medium` was no better on gpt-6-sol.
 
 **Why the task comes after the story.** The request ends with ~1k tokens that are the same for every
 story — the task, the hard limits, the check before answering, the format — so the prompt cache, which
@@ -337,7 +344,7 @@ of 2500), the number asked for is declared beside the limit (`QUIZ_ASKED`, `BET_
 must not either: the prompts are built when the module loads.
 
 **A month with every category on** (the stories of all game and AI categories, 7–10 a day): about
-$5–9, of which the arcs on sol are $4–7; each story a day adds $0.6–0.8 a month. The cost does not grow
+$4–7, of which the arcs on sol are $3–5; each story a day adds $0.4–0.6 a month. The cost does not grow
 with the number of chats — an arc is written once for all of them. The daily budget caps the pipeline at
 about $30 a month even if a bug writes in circles. The talks are outside it and grow with the chats: a
 model call only for a message that replies to the crow, calls her or names a story she posted, so a

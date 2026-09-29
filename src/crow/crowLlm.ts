@@ -125,10 +125,10 @@ interface Call<T> {
 
 /**
  * The crow's calls to the language model (see the config): sorting, facts and her
- * store for talks on `gpt-6-luna`, the arcs on `gpt-6-sol`; what the whole chat reads
+ * store for talks on `gpt-6-luna`, the arcs on `gpt-6.1-sol`; what the whole chat reads
  * of her outside the arcs — the digests, the goodbye, the jabs, the release radar, the
  * quiz, the reminders, the countdown, a bet's outcome, her birthday — on the text model,
- * `gpt-6-sol`, a few calls a day, which won the blind A/B; and the rest of what she says,
+ * `gpt-6.1-sol`, a few calls a day, which won the blind A/B; and the rest of what she says,
  * her talks first, many a day, on the talk model, `gpt-6-luna`.
  */
 export class CrowLlm {

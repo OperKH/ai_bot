@@ -151,6 +151,7 @@ SECTION OWNERSHIP RULES (HARD CONSTRAINTS)
 // Pricing per 1M tokens (USD) - Standard tier
 // Source: https://developers.openai.com/api/docs/pricing
 const MODEL_PRICING: Record<string, { input: number; cached: number; output: number }> = {
+  'gpt-6.1-sol': { input: 2.0, cached: 0.1, output: 10.0 },
   'gpt-6-astra': { input: 10.0, cached: 1.0, output: 50.0 },
   'gpt-6-sol': { input: 2.0, cached: 0.2, output: 10.0 },
   'gpt-6-luna': { input: 0.1, cached: 0.01, output: 0.5 },

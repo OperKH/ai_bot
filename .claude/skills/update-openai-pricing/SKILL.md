@@ -1,7 +1,7 @@
 ---
 name: update-openai-pricing
 description: Refresh the MODEL_PRICING constant in src/services/openai.service.ts from the official OpenAI pricing page. Use when token costs look wrong or stale, when a new model must be priced, or when asked to update/check OpenAI prices. Also A/Bs a new model against the bot's current ones before switching — including the crow's blind A/B, to check that its arcs do not get worse on a new model such as the next sol.
-model: haiku
+model: sonnet
 effort: low
 allowed-tools: Bash, Read, Grep, AskUserQuestion, Agent
 argument-hint: '[--check] [--tier <tier>]'
@@ -89,7 +89,9 @@ Adding a model the page does not price fails loudly, so a typo from "Other" surf
 With no answer to act on and only price changes pending, run the script with no flags.
 
 Placement is handled for you: an added model is filed by the rank the docs give it, so a new generation lands at the
-top of the constant and an older model slots in beside its own generation. Each family is then ordered dearest first,
+top of the constant and an older model slots in beside its own generation. The docs interleave generations
+(`gpt-6.1-sol` between `gpt-6-astra` and `gpt-6-luna`), but a family's run is never split: the newer version goes
+before it, anything else after. Each family is then ordered dearest first,
 which is why `gpt-5-pro` sits above `gpt-5`, `gpt-5-mini` and `gpt-5-nano` even though the docs list it after them.
 Nothing else is resorted, so a run that only refreshes prices touches only the numbers.
 

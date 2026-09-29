@@ -454,6 +454,38 @@ describe('ordering within a model family', () => {
     t.assert.strictEqual(keys[0], 'gpt-5.6-sol');
   });
 
+  it('never splits a family run when the page rank lands a new family inside it', (t: TestContext) => {
+    const target = [
+      'const MODEL_PRICING: Record<string, { input: number; cached: number; output: number }> = {',
+      "  'gpt-6-astra': { input: 10.0, cached: 1.0, output: 50.0 },",
+      "  'gpt-6-sol': { input: 2.0, cached: 0.2, output: 10.0 },",
+      "  'gpt-6-luna': { input: 0.1, cached: 0.01, output: 0.5 },",
+      "  'gpt-5.6-sol': { input: 4.0, cached: 0.4, output: 20.0 },",
+      '};',
+    ].join('\n');
+    // the page interleaves the generations: gpt-6.1-sol right under gpt-6-astra
+    const page = new Map([
+      ['gpt-6-astra', { input: 10, cached: 1, output: 50 }],
+      ['gpt-6.1-sol', { input: 2, cached: 0.1, output: 10 }],
+      ['gpt-5.9', { input: 3, cached: 0.3, output: 15 }],
+      ['gpt-6-luna', { input: 0.1, cached: 0.01, output: 0.5 }],
+      ['gpt-6-sol', { input: 2, cached: 0.2, output: 10 }],
+      ['gpt-5.6-sol', { input: 4, cached: 0.4, output: 20 }],
+    ]);
+    const keys = (add: string[]) => [...findPricingBlock(applyPricingUpdate(target, page, { add }).source).entries.keys()];
+
+    // a newer generation leads the run it would have split
+    t.assert.deepStrictEqual(keys(['gpt-6.1-sol']), [
+      'gpt-6.1-sol',
+      'gpt-6-astra',
+      'gpt-6-sol',
+      'gpt-6-luna',
+      'gpt-5.6-sol',
+    ]);
+    // an older one follows it
+    t.assert.deepStrictEqual(keys(['gpt-5.9']), ['gpt-6-astra', 'gpt-6-sol', 'gpt-6-luna', 'gpt-5.9', 'gpt-5.6-sol']);
+  });
+
   it('leaves a detached entry that is already in the file where it sits', (t: TestContext) => {
     // the no-hoist rule still holds for entries the run did not add
     t.assert.strictEqual(reorder(FAMILY_TARGET).at(-1), 'gpt-5.6-cyber');

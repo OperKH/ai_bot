@@ -602,6 +602,11 @@ function orderFamilies(keys: readonly string[], priceOf: (model: string) => Mode
  * — it mixes models from the main table with `-chat-latest` and `-codex` entries
  * the page lists in a separate table further down. Models the page no longer
  * prices have no rank at all and are never anchors, so they never move.
+ *
+ * The page rank can still land a new family inside another family's run: the
+ * page lists `gpt-6.1-sol` between `gpt-6-astra` and `gpt-6-luna`. A run is
+ * never split, so the model goes before the run when its version is newer —
+ * a new generation leads the one it replaces — and after it otherwise.
  */
 function insertionIndex(keys: readonly string[], model: string, pageRank: ReadonlyMap<string, number>): number {
   // Join the first contiguous run of the same family; orderFamilies sorts it after.
@@ -619,7 +624,25 @@ function insertionIndex(keys: readonly string[], model: string, pageRank: Readon
     const other = pageRank.get(key);
     if (other !== undefined && other < rank) at = index + 1;
   });
+
+  if (at === 0) return at;
+  // Step out of the run the index splits: back to its start, or on past its end.
+  const step = compareVersions(family, modelFamily(keys[at - 1])) > 0 ? -1 : 1;
+  while (at > 0 && at < keys.length && modelFamily(keys[at - 1]) === modelFamily(keys[at])) at += step;
   return at;
+}
+
+const VERSION_RE = /^gpt-(\d+)(?:\.(\d+))?$/;
+
+/**
+ * Orders two `gpt-N.M` families by version, `0` when either is not one —
+ * `gpt-4o`, the `o` series and unversioned ids have no place on that scale.
+ */
+function compareVersions(a: string, b: string): number {
+  const left = VERSION_RE.exec(a);
+  const right = VERSION_RE.exec(b);
+  if (!left || !right) return 0;
+  return Number(left[1]) - Number(right[1]) || Number(left[2] ?? 0) - Number(right[2] ?? 0);
 }
 
 /**

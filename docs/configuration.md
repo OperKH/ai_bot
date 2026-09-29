@@ -54,13 +54,13 @@ gate», so the values can be tuned on the chat's own messages:
   for the chat's profile, her store for talks, whether a doubtful entry tells a game story's news, the week's
   releases, how a bet ended and the start of a stream in an announcement
 - `OPENAI_CROW_REASONING_EFFORT`: Effort for sorting news and extracting facts (default: low)
-- `OPENAI_CROW_ARC_MODEL`: The crow's model for writing arcs (default: gpt-6-sol) — chosen by a blind A/B,
+- `OPENAI_CROW_ARC_MODEL`: The crow's model for writing arcs (default: gpt-6.1-sol) — chosen by a blind A/B,
   see [crow/pipeline.md](crow/pipeline.md#models-and-costs)
 - `OPENAI_CROW_ARC_REASONING_EFFORT`: Effort for writing arcs (default: medium)
 - `OPENAI_CROW_TALK_MODEL`: The crow's model for the rest outside the arcs (default: gpt-6-luna), many calls a
   day: her talks in the chat and «я ж казала», the UPD to a rumor, the bets and the streams
 - `OPENAI_CROW_TALK_REASONING_EFFORT`: Effort for the talk model (default: low)
-- `OPENAI_CROW_TEXT_MODEL`: The crow's model for what the whole chat reads (default: gpt-6-sol), a few calls a
+- `OPENAI_CROW_TEXT_MODEL`: The crow's model for what the whole chat reads (default: gpt-6.1-sol), a few calls a
   day: the morning and weekly digests, the evening goodbye, the personal jabs, the release radar, the quizzes,
   the reminders of the games that come and go, GTA VI's countdown, a bet's outcome and her birthday word; sol
   won the blind A/B of them against luna, at twenty times the price

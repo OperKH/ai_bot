@@ -1,3 +1,4 @@
+import { gameKey } from './sources/nintendoStore';
 import { normalizeUrl } from './toldYou';
 
 /**
@@ -46,6 +47,8 @@ export function headlineSimilarity(a: string, b: string): number {
 /** A game story of the last days an entry may belong to */
 export interface StoryCandidate {
   storyId: number;
+  /** What the story is of, as the sorting named it: «PS Plus» */
+  hero?: string | null;
   /** Its entries' headlines and links */
   headlines: string[];
   urls: string[];
@@ -60,9 +63,14 @@ export type StoryMatch =
 
 /**
  * The story of an entry among the candidates: the same link settles it, then a headline nearly the same, then the
- * meaning — sure from 0.75, a question for the model from 0.6; below, it is news of its own
+ * meaning — sure from 0.75, a question for the model from 0.6; below, it is news of its own. An entry that names its
+ * hero is sure by meaning only of a story of the same hero, however either is spelled: the month's releases came
+ * 0.78 close to PS Plus's monthly games
  */
-export function matchStory(entry: { url: string | null; headline: string }, candidates: readonly StoryCandidate[]): StoryMatch {
+export function matchStory(
+  entry: { url: string | null; headline: string; hero?: string },
+  candidates: readonly StoryCandidate[],
+): StoryMatch {
   const link = entry.url ? normalizeUrl(entry.url) : null;
   if (link) {
     const same = candidates.find((story) => story.urls.some((url) => normalizeUrl(url) === link));
@@ -77,9 +85,13 @@ export function matchStory(entry: { url: string | null; headline: string }, cand
   const byMeaning = candidates
     .filter((story) => story.similarity !== null)
     .sort((a, b) => b.similarity! - a.similarity!)[0];
-  if (byMeaning && byMeaning.similarity! >= SAME_STORY_SIMILARITY) return { kind: 'same', storyId: byMeaning.storyId, by: 'meaning' };
+  const sameHero = entry.hero === undefined || (!!byMeaning?.hero && gameKey(byMeaning.hero) === gameKey(entry.hero));
+  if (byMeaning && byMeaning.similarity! >= SAME_STORY_SIMILARITY && sameHero) {
+    return { kind: 'same', storyId: byMeaning.storyId, by: 'meaning' };
+  }
   if (byMeaning && byMeaning.similarity! >= MAYBE_SAME_STORY_SIMILARITY) {
     return { kind: 'maybe', storyId: byMeaning.storyId, similarity: byMeaning.similarity! };
   }
   return { kind: 'new' };
 }
+

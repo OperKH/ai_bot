@@ -350,28 +350,37 @@ export class CrowPipeline {
         known.headlines.push(item.title);
         if (item.url) known.urls.push(item.url);
       } else {
-        recent.push({ storyId: story.id, title: story.title, headlines: [item.title], urls: item.url ? [item.url] : [] });
+        recent.push({
+          storyId: story.id,
+          title: story.title,
+          status: story.status,
+          hero: story.hero,
+          headlines: [item.title],
+          urls: item.url ? [item.url] : [],
+        });
       }
       console.log(`${LOG_PREFIX} ${created ? 'New game story' : `Game story (${by})`} ${story.id} «${story.title}» ← ${source.id}`);
     };
 
-    const matchOf = async (item: CrowSourceItem, vector: number[] | null) => {
-      const scores = vector ? await this.store.gameStoryScores(vector, since) : [];
+    const matchOf = async (item: CrowSourceItem, vector: number[] | null, stories = recent, hero?: string) => {
+      const scores = vector && stories.length > 0 ? await this.store.gameStoryScores(vector, since) : [];
       return matchStory(
-        { url: item.url, headline: item.title },
-        recent.map((story) => ({ ...story, similarity: scores.find((s) => s.storyId === story.storyId)?.similarity ?? null })),
+        { url: item.url, headline: item.title, hero },
+        stories.map((story) => ({ ...story, similarity: scores.find((s) => s.storyId === story.storyId)?.similarity ?? null })),
       );
     };
 
     for (const [i, entry] of placed.entries()) {
       const { item, verdict, source, categories } = entry;
+      // The platform's own lineup is the news itself, the most wanted: written at once, and sent first
+      const lineup = source.lineup && item.deadline !== null;
       const placement: ItemPlacement = {
         topicKey: null,
         vendor: null,
         hero: verdict.game,
         title: verdict.title,
         categories,
-        importance: clampImportance(verdict.importance),
+        importance: lineup ? 3 : clampImportance(verdict.importance),
         isRumor: verdict.isRumor,
         eventType: verdict.eventType,
         embedding: vectors[i],
@@ -380,7 +389,11 @@ export class CrowPipeline {
         await attach(entry, placement, null, 'new');
         continue;
       }
-      const match = await matchOf(item, vectors[i]);
+      // A lineup joins only a story the press began of it that nobody has heard yet: one told already never takes it,
+      // one of another hero — the month's releases — only by the model's word
+      const match = lineup
+        ? await matchOf(item, vectors[i], recent.filter((story) => story.status === 'pending'), verdict.game)
+        : await matchOf(item, vectors[i]);
       if (match.kind === 'maybe') doubtful.push({ entry, placement, storyId: match.storyId });
       else await attach(entry, placement, match.kind === 'same' ? match.storyId : null, match.kind === 'same' ? match.by : 'new');
     }

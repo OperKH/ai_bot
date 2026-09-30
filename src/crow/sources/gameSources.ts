@@ -115,6 +115,8 @@ export const GAME_SOURCES: readonly SourceDefinition[] = [
     parse: parsePlayStationBlog,
     intervalMs: 15 * MINUTE,
     official: 'sony',
+    // Its posts of PS Plus's monthly games and catalog, which carry the day the games come
+    lineup: true,
     // The feed has every post whole
     selfContained: true,
     categories: ['playstation', 'freebies', 'gta6', 'releases'],
@@ -237,6 +239,7 @@ export const GAME_SOURCES: readonly SourceDefinition[] = [
     intervalMs: 3 * 60 * MINUTE,
     official: 'sony',
     structured: true,
+    lineup: true,
     selfContained: true,
     categories: ['playstation'],
   },

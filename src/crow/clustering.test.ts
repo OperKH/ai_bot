@@ -46,3 +46,19 @@ describe('matchStory', () => {
     assert.deepEqual(matchStory(entry, []), { kind: 'new' });
   });
 });
+
+describe('matchStory with the hero', () => {
+  // 30.09.2026: Gematsu's entry of PS Plus's monthly games came this close to GameSpot's roundup of the month
+  const entry = { url: null, headline: 'PlayStation Plus Monthly Games lineup for October 2026 announced', hero: 'PS Plus' };
+
+  it('is sure by meaning only of a story of the same hero, however it is spelled', () => {
+    assert.deepEqual(matchStory(entry, [story({ hero: 'ps-plus', similarity: 0.78 })]), { kind: 'same', storyId: 7, by: 'meaning' });
+  });
+
+  it('leaves a story of another hero, or of none, to the model', () => {
+    const roundup = story({ hero: 'October 2026 game releases', similarity: 0.78 });
+    assert.deepEqual(matchStory(entry, [roundup]), { kind: 'maybe', storyId: 7, similarity: 0.78 });
+    assert.deepEqual(matchStory(entry, [story({ hero: null, similarity: 0.78 })]), { kind: 'maybe', storyId: 7, similarity: 0.78 });
+    assert.deepEqual(matchStory({ ...entry, hero: undefined }, [roundup]), { kind: 'same', storyId: 7, by: 'meaning' });
+  });
+});

@@ -155,12 +155,19 @@ A game news has no topic key — ten publishers name it ten ways — so its entr
    Story`: the same event, not the same game); below that it starts a story of its own. A store's own list is
    always a story of its own, and carries its games — each one's title, platforms and picture: the PlayStation
    Blog's post names them in its article («Title | PS5, PS4» and the picture before it), Epic's API and Game Pass's
-   lists give them — for the table and the gallery of its opening ([behavior.md](behavior.md#game-news)). An entry the sorting left out that is surely of a story — by its link, its headline
+   lists give them — for the table and the gallery of its opening ([behavior.md](behavior.md#game-news)).
+   **PS Plus's own lineups** — the PS Blog's posts of the monthly games and of the catalog, and the store's games
+   leaving it (`lineup` sources, an entry with its `deadline`) — look only among the stories not written yet, and
+   are sure by meaning only of one of the same hero (the model is asked of another); anything else leaves them a
+   story of their own. Once a GameSpot's «Biggest New Game Releases Of October» took Gematsu's entry of the monthly games
+   at 0.78, was written about the releases, and every PS Plus entry after it joined a story told already. An entry
+   the sorting left out that is surely of a story — by its link, its headline
    or 0.75 — still counts for the story's publishers and changes nothing else of it: one batch's sorting is not
    another's, and on a real day it called the same news relevant in two of five publishers' entries. Measured on today's feeds: the same news of three publishers came 0.90 and 0.90
    close, another news of the same platform 0.51.
 3. **When it is written:** a store's own list, and a platform's own post of a notable news (importance 2 or
-   more), at once; the press once enough publishers wrote of it within six hours of its first entry — three for
+   more), at once. PS Plus's own lineups are mega news (importance 3) by the code, whatever the sorting said:
+   they go past the chat's limits and first in its queue; the press once enough publishers wrote of it within six hours of its first entry — three for
    a platform, two for GTA VI, the freebies and the release radar, one for the scene — and not before twenty
    minutes, so the others have come. Five
    publishers within three hours, or a platform's own post and three publishers, make it a mega news (importance

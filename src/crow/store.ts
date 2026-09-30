@@ -122,6 +122,8 @@ export interface ItemPlacement {
 export interface RecentGameStory {
   storyId: number;
   title: string;
+  status: CrowStoryStatus;
+  hero: string | null;
   headlines: string[];
   urls: string[];
 }
@@ -1883,11 +1885,11 @@ export class CrowStore {
   /** The game stories started since `since`, but the failed ones, with their entries' headlines and links */
   async recentGameStories(since: Date): Promise<RecentGameStory[]> {
     return this.dataSource.query<RecentGameStory[]>(
-      `SELECT story.id AS "storyId", story.title, array_agg(item.title ORDER BY item.id) AS headlines,
+      `SELECT story.id AS "storyId", story.title, story.status, story.hero, array_agg(item.title ORDER BY item.id) AS headlines,
          array_remove(array_agg(item.url ORDER BY item.id), NULL) AS urls
        FROM crow_story story JOIN crow_source_item item ON item."storyId" = story.id
        WHERE story."createdAt" > $1 AND story.categories && $2::text[] AND story.status <> 'failed'
-       GROUP BY story.id, story.title`,
+       GROUP BY story.id`,
       [since, GAME_CATEGORY_IDS],
     );
   }

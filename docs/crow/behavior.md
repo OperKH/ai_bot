@@ -310,7 +310,9 @@ with a competitor: the roster is the labs' models.
 - **PS Plus: «прийдуть» and «покинуть» are two stories.** The announcement of the monthly games (🎮 Плойка and
   🆓 Халява) or of the catalog (🎮 Плойка) on the PlayStation Blog is one; its games come to the Ukrainian store on
   the first or the third Tuesday of their month. The games leaving the Extra and Deluxe catalog are another, from the
-  Ukrainian store's own list, with the day they leave on.
+  Ukrainian store's own list, with the day they leave on. Each is the most wanted news there is: it is written as
+  soon as the blog or the store has it, without waiting for the press, and goes like a stream — past the chat's
+  limits, first in its queue, ringing even for a restrained crow — at the chat's next turn, out of its quiet hours.
 - **A store's list is shown whole.** The opening of a list — the monthly games, the catalog, the games leaving
   PS Plus, Game Pass's batch, Epic's giveaway — carries a table of every game of it, «Гра | Платформи», and a
   gallery of their pictures, a slide a game with its name (a `slideshow` of up to 30), in place of the story's one

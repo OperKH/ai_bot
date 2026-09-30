@@ -26,6 +26,12 @@ interface SourceBase {
    * subscription — rather than a report of one: it is a story of its own at once
    */
   structured?: boolean;
+  /**
+   * The platform's own word on what its subscription gives and takes — PS Plus's monthly games, the games coming
+   * to its catalog and leaving it: an entry of it with the day they come or go (`deadline`) is the news itself,
+   * written at once and sent first, past the chat's limits, whoever else wrote of it (docs/crow/pipeline.md#game-stories)
+   */
+  lineup?: boolean;
   /** The source is polled from this moment on, e.g. the hunts for GTA VI's mysteries after its release */
   activeFrom?: Date;
   /** A catalog of models: a listing there means the model is out, whoever announced it */

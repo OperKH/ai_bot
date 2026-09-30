@@ -105,8 +105,9 @@ The AI news and the game news are sorted apart: a batch's entries of the game so
 The `pipeline` job runs every 2 minutes:
 
 1. **Sorting.** New entries of categories that no chat wants are marked seen without calling the model.
-   The rest go to `OPENAI_CROW_MODEL` in batches of 25 (`SORT_PROMPT`): relevant or not, category, vendor,
-   topic key, title, hero model, importance by the category's rubric, rumour or not. The rubrics: AI
+   The rest go to `OPENAI_CROW_MODEL` in batches of 25 (`SORT_PROMPT`; [a failed one](#budget-and-pictures)
+   comes back smaller): relevant or not, category, vendor, topic key, title, hero model, importance by the
+   category's rubric, rumour or not. The rubrics: AI
    Enterprise — 3 a new flagship of a top lab, 2 a smaller model or a big feature, 1 API, prices, minor
    versions; AI Homebrew — 3 an open model that beats closed ones or fits 12–24 GB with a clear gain, 2 a
    new version of a known family, 1 quantizations and support in llama.cpp, LM Studio, Ollama; Вайбкодинг
@@ -277,9 +278,16 @@ reasoning mode of GPT-6 Luna, sorted as a new flagship, once took the place of a
   does not knock every two minutes. The owner hears of it from `OpenAIService` for the whole bot
   (`openai-quota`); «▶️ Запустити конвеєр» under that alert ends the pause at once, after a top-up.
 - **Half an emoji** — `slice` cutting a text between the two halves of one, or a broken feed's entity — is not
-  valid Unicode, and the API refuses the whole request with it (400 `invalid_json`), so a sorting batch would fail
-  on every run. The texts are cut with `clip` ([words.ts](../../src/crow/words.ts)), which keeps an emoji whole,
+  valid Unicode, and the API refuses the whole request with it (400 `invalid_json`), so a sorting batch fails
+  with it. The texts are cut with `clip` ([words.ts](../../src/crow/words.ts)), which keeps an emoji whole,
   and `OpenAIService.parse` sends what still comes as «�», with a warning in the log.
+- **A failed sorting** does not stop the run, and a bad entry does not hold up the news. A sorting that failed
+  for what it asked — a request OpenAI refuses, an answer that does not parse — puts its entries behind the fresh
+  ones (`sortFailures`); they come back in batches of five, then one by one, so the entry that fails is found and
+  the rest are sorted. One that failed alone is dropped (`failed`), with an error in the log. OpenAI down or busy
+  (`isPassingError`, after the client's own two retries) fails the run instead, and the same batch comes at the
+  next one. What a broken setting dropped — a model's wrong name, say — goes back to the sorting with
+  `UPDATE crow_source_item SET status = 'new', "sortFailures" = 0 WHERE status = 'failed'`.
 - **Pictures** ([images.ts](../../src/crow/images.ts)): the official page's `og:image` is downloaded,
   turned into a JPEG (1280 px wide) with `sharp` and kept in `data/crow/images/<story>.jpg` until the first
   post uploads it; the later posts and chats use its `file_id`. The daily `cleanup` forgets the pictures of

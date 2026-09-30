@@ -86,7 +86,7 @@ Unit tests cover the crow's decisions, as pure functions next to the code: the g
 seeded generator), which messages a chat gets, quiet hours across the change to winter time, which post
 goes next and within which limits, where «Кш!» is — taken over, left, taken off by the goodbye, and the sending
 that moves it on a fake store — the rich posts, the menu and its callback data, when a job runs, the
-parsing of feeds and sitemaps and of the JSON and Markdown sources (trimmed real ones), topic keys, when a story is written, the outline and
+parsing of feeds and sitemaps and of the JSON and Markdown sources (trimmed real ones), which failure is a source down for a while and which is OpenAI's, the batches of the sorting after a failed one, topic keys, when a story is written, the outline and
 the checks of an arc, the roster update, the daily budget; when a chat's morning comes (across midnight and
 the change of time), which news a digest tells, its checks and its one rewrite, the `morning` job on a fake
 store; when a chat's evening comes, the goodbye's checks, the `evening` job — whether a day was worth a

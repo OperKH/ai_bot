@@ -1,4 +1,6 @@
 import { getLinkChatId } from '../bot/telegramLinks';
+import { isPassingError } from '../services/openai.service';
+import { isSourceDown } from './sources/feed';
 
 const LOG_PREFIX = '[Crow]';
 
@@ -21,6 +23,14 @@ export interface CrowJobDefinition {
   stillWorth?(dueAt: Date, now: Date): boolean;
   /** Returns the new state, or nothing to keep the old one */
   run(state: JobState): Promise<JobState | void>;
+}
+
+/**
+ * Whether a run failed for a while — a source or OpenAI down, busy or out of reach — rather than for the bot: the job
+ * only tries again at its next turn, and the log warns
+ */
+export function isPassingFailure(e: unknown): e is Error {
+  return isSourceDown(e) || isPassingError(e);
 }
 
 export type JobAction = 'wait' | 'run' | 'skip';

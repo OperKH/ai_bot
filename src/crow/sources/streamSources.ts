@@ -1,5 +1,5 @@
 import type { CategoryId } from '../categories';
-import { BROWSER_HEADERS, type FeedItem } from './feed';
+import { BROWSER_HEADERS, type FeedItem, HttpError } from './feed';
 
 const MINUTE = 60_000;
 const FETCH_TIMEOUT_MS = 20_000;
@@ -179,7 +179,7 @@ async function youtubeApi(endpoint: string, params: Record<string, string>, apiK
     headers: { 'x-goog-api-key': apiKey },
     signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
   });
-  if (!response.ok) throw new Error(`HTTP ${response.status} from the YouTube Data API's ${endpoint}`);
+  if (!response.ok) throw new HttpError(response.status, `from the YouTube Data API's ${endpoint}`);
   return response.text();
 }
 

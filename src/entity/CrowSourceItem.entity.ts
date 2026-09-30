@@ -6,8 +6,9 @@ import type { GameListing, ItemDeadline } from '../crow/sources/feed';
  * - `new` — waits for sorting
  * - `irrelevant` — sorted out
  * - `attached` — part of a story
+ * - `failed` — its sorting failed again and again, alone at last: never news
  */
-export type CrowSourceItemStatus = 'seen' | 'new' | 'irrelevant' | 'attached';
+export type CrowSourceItemStatus = 'seen' | 'new' | 'irrelevant' | 'attached' | 'failed';
 
 /** An entry of a news source, remembered so a poll only brings what is new */
 @Entity('crow_source_item')
@@ -60,6 +61,10 @@ export class CrowSourceItem extends BaseEntity {
 
   @Column({ type: 'text', default: 'new' })
   status!: CrowSourceItemStatus;
+
+  /** The sortings that failed with the entry: it waits behind the fresh ones, and goes in a smaller batch */
+  @Column({ type: 'int', default: 0 })
+  sortFailures!: number;
 
   @Column({ type: 'int', nullable: true })
   storyId!: number | null;

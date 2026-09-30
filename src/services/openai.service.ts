@@ -207,6 +207,16 @@ export function isQuotaError(error: unknown): boolean {
   return error instanceof OpenAI.APIError && (error.code === 'insufficient_quota' || error.type === 'insufficient_quota');
 }
 
+/**
+ * Whether a call failed for a while — OpenAI down or busy, the connection lost, no answer in time — rather than for
+ * what it asked, so the same call passes later; the client has tried it again already
+ */
+export function isPassingError(error: unknown): error is Error {
+  if (error instanceof OpenAI.APIConnectionError) return true;
+  if (!(error instanceof OpenAI.APIError) || isQuotaError(error) || error.status === undefined) return false;
+  return error.status === 408 || error.status === 409 || error.status === 429 || error.status >= 500;
+}
+
 export class OpenAIService {
   private static instance: OpenAIService;
   private static readonly LOG_PREFIX = '[OpenAI]';

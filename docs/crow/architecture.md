@@ -101,6 +101,10 @@ Tables `crow_post` and `crow_job`; every change goes through `CrowStore`.
   passed during a downtime runs once, not once per missed turn, or skips to its next turn if it says the
   moment has gone (`stillWorth` in [jobs.ts](../../src/crow/jobs.ts)). `state` survives restarts: a feed's
   ETag, the day's spending.
+- **A failed run** is logged, its error kept in `lastError`, and the job runs again at its next turn, not sooner.
+  A source or OpenAI down for a while — a 5xx, a 429, too slow to answer, unreachable (`isPassingFailure` in
+  [jobs.ts](../../src/crow/jobs.ts)) — is a warning of one line, since nothing in the bot is to mend; any other
+  failure, a 404 or a feed that no longer parses among them, is an error with its stack.
 - The jobs: `source:<id>` for every source (every 10–60 minutes; about seventy of them — the rows of all the
   jobs are made once at the start, and a tick reads only the due ones), `pipeline` (every 2 minutes, and at once
   when a poll brought news), `morning` and `evening` (every 5 minutes: the morning digests and the evening
@@ -196,10 +200,10 @@ keeps the rows consistent.
 | `CrowPollVote` | `crow_poll_vote` | `(pollId, userId)`: a cat's vote on a bet — the name, the username, `optionIds` |
 | `CrowEvent` | `crow_event` | A stream: `key` (`youtube:<id>` or the announcing page), `title`, `categories`, `url` to watch, `startsAt`, the `sources` that told of it and their starts, `videoId` for YouTube's schedule and `checkedAt`, the crow's `texts`; `status` `upcoming` / `cancelled` / `over` |
 | `CrowJob` | `crow_job` | A job's turn, last run, last error and `state` |
-| `CrowSourceItem` | `crow_source_item` | Every entry a source listed: `key`, `title`, `url`, `summary`, `contentHash`, `status` (`seen`, `new`, `irrelevant`, `attached` to a story); `embedding` of a relevant one's headline, for gathering a game news; the `deadline` of a store's list and its `games` |
+| `CrowSourceItem` | `crow_source_item` | Every entry a source listed: `key`, `title`, `url`, `summary`, `contentHash`, `status` (`seen`, `new`, `irrelevant`, `attached` to a story, `failed` its sorting), `sortFailures`; `embedding` of a relevant one's headline, for gathering a game news; the `deadline` of a store's list and its `games` |
 | `CrowRoster` | `crow_roster` | The current models of each lab ([pipeline.md](pipeline.md#roster)) |
 
-The migrations are `AddCrow`, which also seeds the roster, and `AddCrowNickname`, the nicknames' table added after it shipped. The `cleanup` job removes
+The migrations are `AddCrow`, which also seeds the roster, `AddCrowNickname`, the nicknames' table added after it shipped, and `AddCrowSortFailures`. The `cleanup` job removes
 posts older than 400 days — a year and a month, since her birthday tells the year of a chat — then the stories no
 post refers to, then their messages and their stores, and the settled polls of that age with their votes. A
 story's vectors, its messages' and its details', go after 90 days: a talk hears the stories of 48 hours. The

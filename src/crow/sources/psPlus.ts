@@ -1,5 +1,5 @@
 import type { JobState } from '../jobs';
-import { BROWSER_HEADERS, type FeedItem, type GameListing, htmlToText, type ItemDeadline, parseFeed, rssContents } from './feed';
+import { BROWSER_HEADERS, type FeedItem, type GameListing, htmlToText, HttpError, type ItemDeadline, parseFeed, rssContents } from './feed';
 import { fetchQueryHash } from './psStoreHash';
 
 const HOUR = 3_600_000;
@@ -128,7 +128,7 @@ export async function lastChanceProducts(hash: string): Promise<StoreProduct[] |
   });
   const body = await response.text();
   if (isUnknownQuery(response.status, body)) return 'unknown-query';
-  if (!response.ok) throw new Error(`HTTP ${response.status} from the PS Store's GraphQL`);
+  if (!response.ok) throw new HttpError(response.status, "from the PS Store's GraphQL");
   const grid = (JSON.parse(body) as { data?: { categoryGridRetrieve?: { products?: StoreProduct[] } } }).data?.categoryGridRetrieve;
   if (!grid) throw new Error(`The PS Store's GraphQL gave no grid: ${body.slice(0, 200)}`);
   return grid.products ?? [];
@@ -145,7 +145,7 @@ async function productLeavingTime(productId: string): Promise<Date | null> {
     headers: { ...BROWSER_HEADERS, 'accept-language': 'uk-UA,uk;q=0.9' },
     signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
   });
-  if (!response.ok) throw new Error(`HTTP ${response.status} for the PS Store's page of ${productId}`);
+  if (!response.ok) throw new HttpError(response.status, `for the PS Store's page of ${productId}`);
   return leavingTime(await response.text());
 }
 

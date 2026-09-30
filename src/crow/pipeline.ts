@@ -1,7 +1,7 @@
 import { getLinkChatId } from '../bot/telegramLinks';
 import type { CrowSourceItem } from '../entity/CrowSourceItem.entity';
 import type { CrowDeadline, CrowFact, CrowStory } from '../entity/CrowStory.entity';
-import { isQuotaError } from '../services/openai.service';
+import { isPassingError, isQuotaError } from '../services/openai.service';
 import { budgetDay, type BudgetState, spend, today, withinBudget } from './budget';
 import { allowedNumbers } from './arcValidation';
 import { MAX_FACTS } from './arcOutline';
@@ -41,8 +41,10 @@ import type { SourceDefinition } from './sources/source';
 const LOG_PREFIX = '[Crow]';
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
-/** Entries sorted per call */
-const SORT_BATCH = 25;
+/** Entries sorted per call, by how many sortings failed with them: a failed batch comes back in fives, then alone */
+const SORT_BATCHES = [25, 5, 1];
+/** An entry whose sorting failed this many times, the last one alone, is dropped */
+const MAX_SORT_FAILURES = SORT_BATCHES.length;
 /** What the sorting model reads of an entry */
 const SORT_SUMMARY_MAX = 1200;
 /** What the model that matches a game news to a story reads of the entry */
@@ -77,6 +79,18 @@ export interface PipelineBudget {
   limitUsd: number;
   /** Told when stories wait for money; the pipeline asks at most once a day, the owner alert throttles too */
   onSpent?: (report: BudgetReport) => Promise<unknown>;
+}
+
+/**
+ * The batches of a run's sorting: the fresh entries, or else the ones a failed sorting put back, each time in smaller
+ * batches, so the entry that fails a call is found and the rest are sorted
+ */
+export function sortingTurn<T extends { sortFailures: number }>(items: T[]): T[][] {
+  if (items.length === 0) return [];
+  const failures = Math.min(...items.map((item) => item.sortFailures));
+  const turn = items.filter((item) => item.sortFailures === failures);
+  const size = SORT_BATCHES[failures] ?? 1;
+  return Array.from({ length: Math.ceil(turn.length / size) }, (_, i) => turn.slice(i * size, (i + 1) * size));
 }
 
 /**
@@ -162,7 +176,7 @@ export class CrowPipeline {
         const next: JobState = { ...state, budget };
         delete next.pausedUntil;
         try {
-          if (canPay()) await this.sortNewItems(pay);
+          await this.sortNewItems(pay, canPay);
           await this.promoteStories(pay, canPay, spent);
           await this.confirmRumors(pay, canPay);
         } catch (e) {
@@ -184,8 +198,8 @@ export class CrowPipeline {
    * Sorts the new entries into stories: the AI news by their topic, the game news by their meaning. Entries of
    * categories no chat wants are not sorted at all: that would only spend money.
    */
-  private async sortNewItems(pay: (costUsd: number) => void) {
-    const items = await this.store.newItems(SORT_BATCH);
+  private async sortNewItems(pay: (costUsd: number) => void, canPay: () => boolean) {
+    const items = await this.store.newItems(SORT_BATCHES[0]);
     if (items.length === 0) return;
     const wanted = await this.store.subscribedCategories();
     const unwanted = items.filter((item) => !this.sourceById.get(item.sourceId)?.categories.some((c) => wanted.has(c)));
@@ -193,11 +207,40 @@ export class CrowPipeline {
       unwanted.map((item) => item.id),
       'seen',
     );
-    const sortable = items.filter((item) => !unwanted.includes(item));
-    const games = sortable.filter((item) => this.isGameSource(item.sourceId));
-    const ai = sortable.filter((item) => !games.includes(item));
-    if (ai.length > 0) await this.sortAiItems(ai, wanted, pay);
-    if (games.length > 0) await this.sortGameItems(games, wanted, pay);
+    for (const batch of sortingTurn(items.filter((item) => !unwanted.includes(item)))) {
+      // A batch put back comes in fives or alone: each is a call
+      if (!canPay()) return;
+      const games = batch.filter((item) => this.isGameSource(item.sourceId));
+      const ai = batch.filter((item) => !games.includes(item));
+      await this.sortOrPutBack(ai, () => this.sortAiItems(ai, wanted, pay));
+      await this.sortOrPutBack(games, () => this.sortGameItems(games, wanted, pay));
+    }
+  }
+
+  /**
+   * A sorting that failed for what it asked — a request OpenAI refuses, an answer that does not parse — does not
+   * stop the run: its entries wait behind the fresh ones and come back in a smaller batch, so a bad entry does not
+   * hold up the news. OpenAI down or busy fails the run, and the same batch comes at the next one.
+   */
+  private async sortOrPutBack(items: CrowSourceItem[], sort: () => Promise<void>) {
+    if (items.length === 0) return;
+    try {
+      await sort();
+    } catch (e) {
+      if (isQuotaError(e) || isPassingError(e)) throw e;
+      const dropped = await this.store.failSorting(
+        items.map((item) => item.id),
+        MAX_SORT_FAILURES,
+      );
+      // The last try is alone, so an entry dropped is the batch
+      const [entry] = dropped;
+      console.error(
+        entry
+          ? `${LOG_PREFIX} Entry ${entry.id} «${entry.title}» of ${entry.sourceId} failed its sorting alone; dropped:`
+          : `${LOG_PREFIX} Sorting failed with ${items.length} entries; they wait behind the fresh ones:`,
+        e,
+      );
+    }
   }
 
   private isGameSource(sourceId: string): boolean {

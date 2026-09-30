@@ -64,6 +64,25 @@ export interface ConditionalState {
 
 export type FetchResult = { notModified: true } | { notModified: false; body: string; state: ConditionalState };
 
+/** A source's answer the bot cannot use: `what` names the request, «for <url>» */
+export class HttpError extends Error {
+  constructor(
+    readonly status: number,
+    what: string,
+  ) {
+    super(`HTTP ${status} ${what}`);
+  }
+}
+
+/**
+ * Whether a failure is the source's for a while — its server down or overloaded (5xx, 429), too slow to answer, or
+ * unreachable — rather than the bot's or a source that changed: its job only tries again at its next turn
+ */
+export function isSourceDown(e: unknown): e is Error {
+  if (e instanceof HttpError) return e.status >= 500 || e.status === 429 || e.status === 408;
+  return e instanceof Error && (e.name === 'TimeoutError' || (e instanceof TypeError && e.message === 'fetch failed'));
+}
+
 /** Reddit answers an anonymous client about once a minute: after a request, `remaining 0` until the minute ends */
 const REDDIT_GAP_MS = 61_000;
 let redditTurn: Promise<void> = Promise.resolve();
@@ -100,7 +119,7 @@ export async function fetchText(
     signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
   });
   if (response.status === 304) return { notModified: true };
-  if (!response.ok) throw new Error(`HTTP ${response.status} for ${url}`);
+  if (!response.ok) throw new HttpError(response.status, `for ${url}`);
   return {
     notModified: false,
     body: await response.text(),

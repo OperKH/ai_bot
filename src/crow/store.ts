@@ -1,4 +1,4 @@
-import { DataSource, EntityManager, In, IsNull, LessThan, LessThanOrEqual, MoreThan, Not } from 'typeorm';
+import { DataSource, EntityManager, In, IsNull, LessThan, LessThanOrEqual, MoreThan, MoreThanOrEqual, Not } from 'typeorm';
 import {
   ChatMessage,
   ChatState,
@@ -1760,7 +1760,7 @@ export class CrowStore {
           title: item.title,
           summary: item.summary,
           contentHash: hash,
-          ...(isNews(item) ? { status: 'new' as const, firstSeenAt: now } : {}),
+          ...(isNews(item) ? { status: 'new' as const, firstSeenAt: now, sortFailures: 0 } : {}),
         });
         if (isNews(item)) news++;
       }
@@ -1768,11 +1768,26 @@ export class CrowStore {
     return news;
   }
 
-  /** Entries waiting for sorting, oldest first */
+  /** Entries waiting for sorting, oldest first, those a sorting failed with behind the fresh ones */
   async newItems(limit: number): Promise<CrowSourceItem[]> {
     return this.dataSource
       .getRepository(CrowSourceItem)
-      .find({ where: { status: 'new' }, order: { firstSeenAt: 'ASC', id: 'ASC' }, take: limit });
+      .find({ where: { status: 'new' }, order: { sortFailures: 'ASC', firstSeenAt: 'ASC', id: 'ASC' }, take: limit });
+  }
+
+  /**
+   * Counts a failed sorting of the entries still waiting: they go behind the fresh ones. Those it failed `max` times
+   * are dropped (`failed`), and returned
+   */
+  async failSorting(ids: number[], max: number): Promise<CrowSourceItem[]> {
+    const repository = this.dataSource.getRepository(CrowSourceItem);
+    await repository.increment({ id: In(ids), status: 'new' }, 'sortFailures', 1);
+    const dropped = await repository.find({ where: { id: In(ids), status: 'new', sortFailures: MoreThanOrEqual(max) } });
+    await this.markItems(
+      dropped.map((item) => item.id),
+      'failed',
+    );
+    return dropped;
   }
 
   async markItems(ids: number[], status: CrowSourceItemStatus): Promise<void> {

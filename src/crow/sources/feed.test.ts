@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { htmlToText, metaContent, parseFeed, parseSitemap } from './feed';
+import { htmlToText, HttpError, isSourceDown, metaContent, parseFeed, parseSitemap } from './feed';
 
 // Trimmed from the real feeds of 26.09.2026
 const OPENROUTER_RSS = `<rss version="2.0"><channel>
@@ -108,5 +108,19 @@ describe('metaContent', () => {
     assert.equal(metaContent(html, 'og:image'), 'https://a/card.jpeg');
     assert.equal(metaContent(html, 'og:title'), 'T');
     assert.equal(metaContent(html, 'og:description'), null);
+  });
+});
+
+describe('isSourceDown', () => {
+  it('takes a server down, a limit, a timeout and no connection for the source for a while, the rest for errors', () => {
+    const noConnection = new TypeError('fetch failed', { cause: new Error('getaddrinfo ENOTFOUND blog.example') });
+    assert.equal(isSourceDown(new HttpError(502, 'for https://blog.example/feed/')), true);
+    assert.equal(isSourceDown(new HttpError(429, 'for https://blog.example/feed/')), true);
+    assert.equal(isSourceDown(new DOMException('The operation was aborted due to timeout', 'TimeoutError')), true);
+    assert.equal(isSourceDown(noConnection), true);
+    assert.equal(isSourceDown(new HttpError(404, 'for https://blog.example/feed/')), false);
+    assert.equal(isSourceDown(new HttpError(403, 'for https://blog.example/feed/')), false);
+    assert.equal(isSourceDown(new TypeError("Cannot read properties of undefined (reading 'title')")), false);
+    assert.equal(isSourceDown(new Error("The PS Store's GraphQL gave no grid")), false);
   });
 });

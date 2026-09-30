@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { BROWSER_HEADERS } from './feed';
+import { BROWSER_HEADERS, HttpError } from './feed';
 import { type Definition, parseDocument, printDocument, sortDocument, spreadsOf, withTypename } from './graphqlDocument';
 
 const FETCH_TIMEOUT_MS = 30_000;
@@ -54,7 +54,7 @@ export function queryHash(definitions: ReadonlyMap<string, Definition>, operatio
 
 async function getText(url: string): Promise<string> {
   const response = await fetch(url, { headers: BROWSER_HEADERS, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
-  if (!response.ok) throw new Error(`HTTP ${response.status} for ${url}`);
+  if (!response.ok) throw new HttpError(response.status, `for ${url}`);
   return response.text();
 }
 

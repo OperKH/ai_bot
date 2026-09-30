@@ -12,7 +12,7 @@ import { withReleaseLine } from './countdowns';
 import { streamContent } from './events';
 import { dropStoryImage, storyPhoto } from './images';
 import { decide, isLoud, isNews, nextPostTime, POST_KINDS } from './dispatch';
-import { jobAction, type CrowJobDefinition } from './jobs';
+import { isPassingFailure, jobAction, type CrowJobDefinition } from './jobs';
 import type { CrowStore, DueChat } from './store';
 
 const LOG_PREFIX = '[Crow]';
@@ -425,7 +425,7 @@ export class CrowScheduler {
     }
   }
 
-  /** Runs a job and books its next turn, whether it failed or not */
+  /** Runs a job and books its next turn, whether it failed or not; a source or OpenAI down is only warned of */
   private async runJob(job: CrowJobDefinition, state: Record<string, unknown>) {
     const startedAt = new Date();
     try {
@@ -437,7 +437,12 @@ export class CrowScheduler {
         ...(newState ? { state: newState } : {}),
       });
     } catch (e) {
-      console.error(`${LOG_PREFIX} Job ${job.name} failed:`, e);
+      if (isPassingFailure(e)) {
+        const cause = e.cause instanceof Error ? ` (${e.cause.message})` : '';
+        console.warn(`${LOG_PREFIX} Job ${job.name}: ${e.message}${cause}; it tries again at its next turn`);
+      } else {
+        console.error(`${LOG_PREFIX} Job ${job.name} failed:`, e);
+      }
       await this.store.saveJob(job.name, { lastRunAt: startedAt, nextRunAt: job.nextRun(startedAt), lastError: String(e) });
     } finally {
       this.queuedJobs.delete(job.name);

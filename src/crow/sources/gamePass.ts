@@ -1,7 +1,6 @@
 import type { JobState } from '../jobs';
-import { BOT_USER_AGENT, type FeedItem } from './feed';
+import { type FeedItem, fetchText } from './feed';
 
-const FETCH_TIMEOUT_MS = 20_000;
 const CATALOG_URL = 'https://catalog.gamepass.com/sigls/v2';
 const PRODUCTS_URL = 'https://displaycatalog.mp.microsoft.com/v7.0/products';
 /** The display catalog answers for this many products a request */
@@ -41,9 +40,9 @@ export function parseCatalogProducts(json: string): { id: string; title: string;
 }
 
 async function getJson(url: string): Promise<string> {
-  const response = await fetch(url, { headers: { 'user-agent': BOT_USER_AGENT }, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
-  if (!response.ok) throw new Error(`HTTP ${response.status} for ${url}`);
-  return response.text();
+  const fetched = await fetchText(url);
+  // Asked without an ETag, it never answers «not modified»
+  return fetched.notModified ? '' : fetched.body;
 }
 
 /** The games that are new to a list since the list the state remembers, as one entry: they came, or go, together */

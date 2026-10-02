@@ -23,8 +23,8 @@ describe('cadenceCategory', () => {
 
 describe('planArc', () => {
   it('gives the chat as many posts as its boldness allows', () => {
-    assert.equal(planArc(arc, aiEnterprise, 3, 'restrained', NOW, Math.random).length, 6);
-    assert.equal(planArc(arc, aiEnterprise, 3, 'bold', NOW, Math.random).length, 12);
+    assert.equal(planArc(arc, aiEnterprise, 3, 'restrained', NOW, Math.random).length, 3);
+    assert.equal(planArc(arc, aiEnterprise, 3, 'bold', NOW, Math.random).length, 6);
   });
 
   it('lets the first post go at once and makes the rest wait for their turn', () => {

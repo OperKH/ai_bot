@@ -1,6 +1,6 @@
 import { getLinkChatId } from '../bot/telegramLinks';
 import type { CrowSourceItem } from '../entity/CrowSourceItem.entity';
-import type { CrowDeadline, CrowFact, CrowStory } from '../entity/CrowStory.entity';
+import type { CrowDeadline, CrowFact, CrowQuiz, CrowStory } from '../entity/CrowStory.entity';
 import { isPassingError, isQuotaError } from '../services/openai.service';
 import { budgetDay, type BudgetState, spend, today, withinBudget } from './budget';
 import { allowedNumbers } from './arcValidation';
@@ -15,6 +15,7 @@ import {
   GTA6_RELEASE,
   type Importance,
   isGameStory,
+  ownCategories,
   publishersNeeded,
 } from './categories';
 import { localDate } from './chatClock';
@@ -24,7 +25,7 @@ import type { CrowLlm, SortableItem } from './crowLlm';
 import { type Embedder, embedOrNone, entryText, postFacts } from './embeddings';
 import { MAX_REMINDER_LENGTH, reminderPost, reminderWindow, writeReminder } from './deadlines';
 import { saveStoryImage } from './images';
-import { withQuiz, writeQuiz } from './quiz';
+import { QUIZ_MIN_POSTS, withQuiz, writeQuiz } from './quiz';
 import type { CrowJobDefinition, JobState } from './jobs';
 import { normalizeTopicKey, normalizeVendor } from './modelKey';
 import { cadenceCategory, JAB_MIN_POSTS, planArc, type PlannedJab, withJabs } from './planning';
@@ -316,9 +317,16 @@ export class CrowPipeline {
     const placed = sortable.flatMap((item, index) => {
       const verdict = result.items.find((v) => v.index === index);
       const source = this.sourceById.get(item.sourceId);
-      const categories = (verdict?.relevant ? verdict.categories : [])
-        .filter((id): id is CategoryId => source?.categories.includes(id as CategoryId) === true && wanted.has(id));
-      return verdict && source && categories.length > 0 ? [{ item, verdict, source, categories: [...new Set(categories)] }] : [];
+      if (!verdict || !source) return [];
+      // The platform's own lineup is the news itself, the most wanted: of its category whatever the sorting said,
+      // written at once, and sent first
+      const lineup = item.deadline !== null ? source.lineup : undefined;
+      // Kept to the source's and to those some chat hears only after an exclusive one took the rest: a PS Plus list
+      // nobody hears yet is not Плойка's news
+      const categories = ownCategories(lineup ? [lineup] : verdict.relevant ? verdict.categories : []).filter(
+        (id): id is CategoryId => source.categories.includes(id as CategoryId) && wanted.has(id),
+      );
+      return categories.length > 0 ? [{ item, verdict, source, categories, lineup }] : [];
     });
     const unplaced = sortable.filter((item) => !placed.some((p) => p.item === item));
     // The title the sorting gave, which reads the same whoever wrote the news, for the left-out entries too
@@ -371,9 +379,7 @@ export class CrowPipeline {
     };
 
     for (const [i, entry] of placed.entries()) {
-      const { item, verdict, source, categories } = entry;
-      // The platform's own lineup is the news itself, the most wanted: written at once, and sent first
-      const lineup = source.lineup && item.deadline !== null;
+      const { item, verdict, source, categories, lineup } = entry;
       const placement: ItemPlacement = {
         topicKey: null,
         vendor: null,
@@ -698,9 +704,9 @@ export class CrowPipeline {
     }
     await this.storeSnippets(story, facts, materials, pay);
     const bet = rumor ? null : await this.proposeBet(story, facts, now, pay);
-    // A quiz for the long arcs of a mega story, on what every chat hears first: its opening
-    const quiz =
-      importance === 3 && !rumor ? await this.proposeQuiz(story, category, facts.filter((f) => saved[0].factIds.includes(f.id)), now, pay) : null;
+    // A quiz for the long arcs of a mega story, on what every chat hears first: its opening — written once a chat's
+    // chain is long enough to carry it
+    let quiz: CrowQuiz | null | undefined = importance === 3 && !rumor ? undefined : null;
     const deadline = await this.storyDeadline(story, items, category, facts, now, pay);
     // Only the lab's own word: OpenRouter's reasoning mode of GPT-6 Luna, sorted as a new flagship, once
     // took the place of all of OpenAI's models
@@ -739,6 +745,9 @@ export class CrowPipeline {
           posts = withBet(posts, bet, this.random);
           bets++;
         }
+      }
+      if (quiz === undefined && posts.length >= QUIZ_MIN_POSTS) {
+        quiz = await this.proposeQuiz(story, category, facts.filter((f) => saved[0].factIds.includes(f.id)), now, pay);
       }
       if (quiz) posts = withQuiz(posts, quiz.question, this.random);
       await this.store.planPosts(chat.chatId, story.id, posts);

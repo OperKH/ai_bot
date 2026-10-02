@@ -39,7 +39,7 @@ import {
   type CrowTable,
 } from '../entity/index';
 import { closestGameStories, type MaterialScore, talkMaterialScores } from '../dataSource/vectorSearch';
-import { type CategoryId, GAME_CATEGORY_IDS, type Importance } from './categories';
+import { type CategoryId, GAME_CATEGORY_IDS, type Importance, ownCategories } from './categories';
 import { budgetDay } from './budget';
 import { startOfDay } from './chatClock';
 import { FALLBACK_TIME_ZONE } from '../bot/commands/timeZones';
@@ -1856,7 +1856,7 @@ export class CrowStore {
         // A rumor already told stays one until the pipeline has told the chats it came true (`confirmRumor`)
         isRumor: story.status === 'ready' ? story.isRumor : story.isRumor && placement.isRumor,
         sources: story.sources.some((s) => s.url === source.url) ? story.sources : [...story.sources, source],
-        categories: [...new Set([...story.categories, ...placement.categories])],
+        categories: ownCategories([...story.categories, ...placement.categories]),
       });
     } else {
       const key = placement.topicKey ?? `games/${placement.title.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '-').slice(0, 60)}`;

@@ -21,9 +21,9 @@ const aiEnterprise = CATEGORIES.find((c) => c.id === 'ai-enterprise')!.cadence;
 
 describe('visitsFor', () => {
   it('scales the posts of a story by the boldness of the chat', () => {
-    assert.equal(visitsFor(aiEnterprise, 3, 'restrained'), 6);
-    assert.equal(visitsFor(aiEnterprise, 3, 'bold'), 12);
-    assert.equal(visitsFor(aiEnterprise, 3, 'pestering'), 16); // 18, capped by hardMax
+    assert.equal(visitsFor(aiEnterprise, 3, 'restrained'), 3);
+    assert.equal(visitsFor(aiEnterprise, 3, 'bold'), 6);
+    assert.equal(visitsFor(aiEnterprise, 3, 'pestering'), 8); // 9, capped by hardMax
   });
 
   it('gives every story at least one post', () => {

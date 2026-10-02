@@ -21,6 +21,7 @@ export type CategoryId =
   | 'ai-homebrew'
   | 'vibecoding'
   | 'playstation'
+  | 'ps-plus'
   | 'nintendo'
   | 'xbox'
   | 'pc'
@@ -49,6 +50,8 @@ export interface Category {
   /** What the category is about, shown next to the button */
   caption: (now: Date) => string;
   cadence: Cadence;
+  /** Its news are its alone: an entry sorted into it is in no other category, as PS Plus's lists are not Плойка's */
+  exclusive?: boolean;
   /** Toasts when the category is switched on and off */
   toasts: { on: string; off: string };
 }
@@ -61,11 +64,22 @@ export const GTA6_RELEASE = new Date('2026-11-18T22:00:00Z');
 /** Its day, as every chat counts the days to it in its own zone */
 export const GTA6_RELEASE_DAY = '2026-11-19';
 
+/** A platform's news is its opening; a pestering crow adds a word on it */
 const PLATFORM: Cadence = {
-  hardMax: 6,
+  hardMax: 2,
   byImportance: {
-    3: { visits: 4, windowMs: 8 * HOUR, burst: { visits: 2, withinMs: 15 * MINUTE } },
-    2: { visits: 2, windowMs: 4 * HOUR },
+    3: { visits: 1, windowMs: 8 * HOUR },
+    2: { visits: 1, windowMs: 4 * HOUR },
+    1: { visits: 1 },
+  },
+};
+
+/** A list of games that come for free, or with a subscription: the list, and a word on its best a day or two later */
+const LISTS: Cadence = {
+  hardMax: 2,
+  byImportance: {
+    3: { visits: 2, windowMs: 48 * HOUR },
+    2: { visits: 2, windowMs: 48 * HOUR },
     1: { visits: 1 },
   },
 };
@@ -82,11 +96,11 @@ export const CATEGORIES: readonly Category[] = [
     button: '🤖 AI Enterprise',
     caption: () => 'флагманські моделі',
     cadence: {
-      hardMax: 16,
+      hardMax: 8,
       byImportance: {
-        3: { visits: 12, windowMs: 30 * HOUR, burst: { visits: 3, withinMs: 20 * MINUTE } },
-        2: { visits: 6, windowMs: 12 * HOUR, burst: { visits: 2, withinMs: 15 * MINUTE } },
-        1: { visits: 2, windowMs: 4 * HOUR },
+        3: { visits: 6, windowMs: 30 * HOUR, burst: { visits: 2, withinMs: 20 * MINUTE } },
+        2: { visits: 3, windowMs: 12 * HOUR },
+        1: { visits: 1, windowMs: 4 * HOUR },
       },
     },
     toasts: {
@@ -99,12 +113,12 @@ export const CATEGORIES: readonly Category[] = [
     domain: 'ai',
     button: '🦙 AI Homebrew',
     caption: () => 'відкриті моделі',
-    // An open model is a post or two of material, three at most
+    // An open model is a post or two of material
     cadence: {
-      hardMax: 3,
+      hardMax: 2,
       byImportance: {
-        3: { visits: 3, windowMs: 8 * HOUR },
-        2: { visits: 2, windowMs: 4 * HOUR },
+        3: { visits: 2, windowMs: 8 * HOUR },
+        2: { visits: 1, windowMs: 4 * HOUR },
         1: { visits: 1 },
       },
     },
@@ -137,11 +151,25 @@ export const CATEGORIES: readonly Category[] = [
     domain: 'games',
     publishers: 3,
     button: '🎮 Плойка',
-    caption: () => 'PlayStation і PS Plus',
+    caption: () => 'PlayStation і State of Play',
     cadence: PLATFORM,
     toasts: {
-      on: '🎮 Плойку увімкнено. State of Play, PS Plus — усе принесу.',
+      on: '🎮 Плойку увімкнено. State of Play, ексклюзиви, ціни — усе принесу.',
       off: '🎮 Плойку вимкнено. Сподіваюся, у вас хоч Steam Deck є.',
+    },
+  },
+  {
+    id: 'ps-plus',
+    domain: 'games',
+    publishers: 2,
+    button: '➕ PS Plus',
+    caption: () => 'ігри місяця й каталог',
+    // Only the lists: the month's games, those coming to the catalog and leaving it — sent first (docs/crow/behavior.md#game-news)
+    cadence: LISTS,
+    exclusive: true,
+    toasts: {
+      on: '➕ PS Plus увімкнено. Що Sony дає і що забирає з каталогу — каркну першою.',
+      off: '➕ PS Plus вимкнено. Хай підписка сама вам пише, що з неї зникає.',
     },
   },
   {
@@ -162,7 +190,15 @@ export const CATEGORIES: readonly Category[] = [
     publishers: 3,
     button: '🟩 Бокс',
     caption: () => 'Xbox і Game Pass',
-    cadence: PLATFORM,
+    // Game Pass's batches are its news too, so a word more than the other platforms
+    cadence: {
+      hardMax: 3,
+      byImportance: {
+        3: { visits: 2, windowMs: 8 * HOUR },
+        2: { visits: 1, windowMs: 4 * HOUR },
+        1: { visits: 1 },
+      },
+    },
     toasts: {
       on: '🟩 Бокс увімкнено. Game Pass, Xbox і все, що вони знову переносять на PS5.',
       off: '🟩 Бокс вимкнено. Мудро: там і так усе виходить на PS5.',
@@ -186,14 +222,7 @@ export const CATEGORIES: readonly Category[] = [
     publishers: 2,
     button: '🆓 Халява',
     caption: () => 'безкоштовні ігри',
-    cadence: {
-      hardMax: 2,
-      byImportance: {
-        3: { visits: 2, windowMs: 48 * HOUR },
-        2: { visits: 2, windowMs: 48 * HOUR },
-        1: { visits: 1 },
-      },
-    },
+    cadence: LISTS,
     toasts: {
       on: '🆓 Халяву увімкнено. Краду для вас безкоштовні ігри.',
       off: '🆓 Халяву вимкнено. Любите платити? Поважаю.',
@@ -206,10 +235,10 @@ export const CATEGORIES: readonly Category[] = [
     button: '🌴 GTA VI',
     caption: (now) => (now < GTA6_RELEASE ? 'відлік до 19.11' : 'таємниці та пасхалки'),
     cadence: {
-      hardMax: 8,
+      hardMax: 3,
       byImportance: {
-        3: { visits: 6, windowMs: 12 * HOUR, burst: { visits: 2, withinMs: 15 * MINUTE } },
-        2: { visits: 3, windowMs: 6 * HOUR },
+        3: { visits: 2, windowMs: 12 * HOUR },
+        2: { visits: 1, windowMs: 6 * HOUR },
         1: { visits: 1 },
       },
     },
@@ -262,6 +291,12 @@ export function findCategory(id: string): Category | undefined {
 
 /** The categories of the game news, which the game sorting places entries into */
 export const GAME_CATEGORY_IDS = CATEGORIES.filter((category) => category.domain === 'games').map((category) => category.id);
+
+/** The categories of a news, once each: an exclusive one among them is all of them — PS Plus's lists are not Плойка's */
+export function ownCategories<T extends string>(ids: readonly T[]): T[] {
+  const own = ids.find((id) => findCategory(id)?.exclusive);
+  return own ? [own] : [...new Set(ids)];
+}
 
 /** Whether a story is game news: gathered by meaning and confirmed by its publishers, rather than by its vendor */
 export function isGameStory(categories: readonly string[]): boolean {

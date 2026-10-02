@@ -1,4 +1,4 @@
-import { type CategoryId, GTA6_RELEASE } from '../categories';
+import { type CategoryId, GAME_CATEGORY_IDS, GTA6_RELEASE } from '../categories';
 import type { FeedItem } from './feed';
 import { parseEpicFreeGames, parseGamerPowerGiveaways } from './freebies';
 import { GAME_PASS_ADDED, GAME_PASS_LEAVING, gamePassSource } from './gamePass';
@@ -8,7 +8,7 @@ import type { SourceDefinition } from './source';
 const MINUTE = 60_000;
 
 /** The game categories; a source of the whole press brings news of any of them */
-const GAMES: CategoryId[] = ['playstation', 'nintendo', 'xbox', 'pc', 'freebies', 'gta6', 'releases', 'hacking'];
+const GAMES: CategoryId[] = GAME_CATEGORY_IDS;
 
 /** A Steam app's news feed: the store's own word on its sales and fests, and on Valve's hardware and games */
 const steamNews = (id: string, name: string, appId: number, categories: CategoryId[]): SourceDefinition => ({
@@ -61,7 +61,7 @@ export const GAME_SOURCES: readonly SourceDefinition[] = [
   {
     ...press('push-square', 'Push Square', 'https://www.pushsquare.com/feeds/latest', HOOKSHOT, hookshotNews),
     intervalMs: 10 * MINUTE,
-    categories: ['playstation', 'freebies', 'gta6', 'releases', 'hacking'],
+    categories: ['playstation', 'ps-plus', 'freebies', 'gta6', 'releases', 'hacking'],
   },
   {
     ...press('nintendo-life', 'Nintendo Life', 'https://www.nintendolife.com/feeds/latest', HOOKSHOT, hookshotNews),
@@ -116,10 +116,10 @@ export const GAME_SOURCES: readonly SourceDefinition[] = [
     intervalMs: 15 * MINUTE,
     official: 'sony',
     // Its posts of PS Plus's monthly games and catalog, which carry the day the games come
-    lineup: true,
+    lineup: 'ps-plus',
     // The feed has every post whole
     selfContained: true,
-    categories: ['playstation', 'freebies', 'gta6', 'releases'],
+    categories: ['playstation', 'ps-plus', 'freebies', 'gta6', 'releases'],
     // Its weekly picks and podcasts are no news
     accept: (item) => !/^(Share of the Week|Official PlayStation Podcast)/i.test(item.title),
   },
@@ -239,8 +239,8 @@ export const GAME_SOURCES: readonly SourceDefinition[] = [
     intervalMs: 3 * 60 * MINUTE,
     official: 'sony',
     structured: true,
-    lineup: true,
+    lineup: 'ps-plus',
     selfContained: true,
-    categories: ['playstation'],
+    categories: ['ps-plus'],
   },
 ];

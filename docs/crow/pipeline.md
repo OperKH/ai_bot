@@ -144,7 +144,9 @@ A game news has no topic key — ten publishers name it ten ways — so its entr
 1. **Sorting** (`Sort Crow Game News`, `OPENAI_CROW_MODEL`, `gameSortPrompt`): relevant or not — guides, reviews,
    deals, opinions, films, esports, PC hardware and small patches are not; hacking is the scene's — hacks,
    homebrew, emulators, leaks of code — not the rumors of games; the categories of the news, several
-   for a multiplatform one, kept to those of its source and those some chat hears; the hero; a title in English of
+   for a multiplatform one, kept to those of its source and those some chat hears — but ➕ PS Plus's lists are
+   its alone (`exclusive`, `ownCategories`), not 🎮 Плойка's or 🆓 Халява's, even before any chat hears it and as
+   entries join a story; the hero; a title in English of
    what happened, in the same words whoever wrote it («Sony raises PS5 prices in Europe»); the kind of event; the
    importance by the category's rubric; rumor or not. GTA VI's rubric turns to its mysteries once it is out: a
    solved mystery the press confirmed is news, a theory is not.
@@ -157,7 +159,8 @@ A game news has no topic key — ten publishers name it ten ways — so its entr
    Blog's post names them in its article («Title | PS5, PS4» and the picture before it), Epic's API and Game Pass's
    lists give them — for the table and the gallery of its opening ([behavior.md](behavior.md#game-news)).
    **PS Plus's own lineups** — the PS Blog's posts of the monthly games and of the catalog, and the store's games
-   leaving it (`lineup` sources, an entry with its `deadline`) — look only among the stories not written yet, and
+   leaving it (`lineup` sources, an entry with its `deadline`) — are of ➕ PS Plus whatever the sorting said, and
+   look only among the stories not written yet, and
    are sure by meaning only of one of the same hero (the model is asked of another); anything else leaves them a
    story of their own. Once a GameSpot's «Biggest New Game Releases Of October» took Gematsu's entry of the monthly games
    at 0.78, was written about the releases, and every PS Plus entry after it joined a story told already. An entry
@@ -168,7 +171,7 @@ A game news has no topic key — ten publishers name it ten ways — so its entr
 3. **When it is written:** a store's own list, and a platform's own post of a notable news (importance 2 or
    more), at once. PS Plus's own lineups are mega news (importance 3) by the code, whatever the sorting said:
    they go past the chat's limits and first in its queue; the press once enough publishers wrote of it within six hours of its first entry — three for
-   a platform, two for GTA VI, the freebies and the release radar, one for the scene — and not before twenty
+   a platform, two for GTA VI, the freebies, PS Plus and the release radar, one for the scene — and not before twenty
    minutes, so the others have come. Five
    publishers within three hours, or a platform's own post and three publishers, make it a mega news (importance
    3). Unconfirmed after six hours, it is dropped.

@@ -47,7 +47,7 @@ describe('arcRequest', () => {
   });
 
   it('compares with nobody when there is no roster: a game news gets a fact in its place', () => {
-    const game = { ...story, title: 'Switch 2 price', category: findCategory('nintendo')! };
+    const game = { ...story, title: 'Xbox Series price', category: findCategory('xbox')! };
     const { outline } = arcRequest(game, [], memory, new Date());
     assert.deepEqual(
       outline.map((item) => item.kind),

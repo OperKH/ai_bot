@@ -11,8 +11,8 @@ talks: answers to the cats who reply to her or call her, and a word in a talk ab
 them: «я ж казала» to a cat who brings news she told and the UPD to a rumor that came true, the Friday
 weekly digest with the vote for the week's best news, bets on the stories' dated events, and the
 announcements of the streams — State of Play, Nintendo Direct, the labs' launches — with a reminder before
-them. The game categories — 🎮 Плойка with PS Plus's «прийдуть» and «покинуть», 🍄 Нінтендо, 🟩 Бокс with Game
-Pass, 🖥 Пекарня, 🆓 Халява, 🌴 GTA VI with its countdown, 📅 Реліз-радар with the week's releases on Monday, 🏴‍☠️
+them. The game categories — 🎮 Плойка, ➕ PS Plus with its «прийдуть» and «покинуть» first of all news, 🍄 Нінтендо,
+🟩 Бокс with Game Pass, 🖥 Пекарня, 🆓 Халява, 🌴 GTA VI with its countdown, 📅 Реліз-радар with the week's releases on Monday, 🏴‍☠️
 Хакерня — from the press, the platforms and the stores, a news gathered from its publishers by meaning and told
 once enough of them wrote of it; reminders of the games that come and go; quizzes in the long arcs. Talks and
 forwards are heard by meaning too (EmbeddingGemma). GIFs come later.
@@ -86,7 +86,7 @@ Unit tests cover the crow's decisions, as pure functions next to the code: the g
 seeded generator), which messages a chat gets, quiet hours across the change to winter time, which post
 goes next and within which limits, where «Кш!» is — taken over, left, taken off by the goodbye, and the sending
 that moves it on a fake store — the rich posts, the menu and its callback data, when a job runs, the
-parsing of feeds and sitemaps and of the JSON and Markdown sources (trimmed real ones), which failure is a source down for a while and which is OpenAI's, the batches of the sorting after a failed one, a sure match by meaning only of the same hero, topic keys, when a story is written, the outline and
+parsing of feeds and sitemaps and of the JSON and Markdown sources (trimmed real ones), which failure is a source down for a while and which is OpenAI's, the batches of the sorting after a failed one, a sure match by meaning only of the same hero, an exclusive category taking a news whole, topic keys, when a story is written, the outline and
 the checks of an arc, the roster update, the daily budget; when a chat's morning comes (across midnight and
 the change of time), which news a digest tells, its checks and its one rewrite, the `morning` job on a fake
 store; when a chat's evening comes, the goodbye's checks, the `evening` job — whether a day was worth a

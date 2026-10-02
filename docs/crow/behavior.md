@@ -302,14 +302,14 @@ Play, Nintendo Direct, the labs' launches.
 
 The game categories hear the press, the platforms' own channels and the stores' lists
 ([pipeline.md](pipeline.md#game-stories)). A game news is one story however many publishers wrote of it, and it
-reaches the chats once enough of them did — three for a platform, two for GTA VI and the freebies — so the chat
+reaches the chats once enough of them did — three for a platform, two for GTA VI, the freebies and PS Plus — so the chat
 hears what the press is talking about, not every post of one site; five publishers within three hours make it a
 mega news. A platform's own post of a notable news and a store's own list go at once. Its arc has no comparison
 with a competitor: the roster is the labs' models.
 
-- **PS Plus: «прийдуть» and «покинуть» are two stories.** The announcement of the monthly games (🎮 Плойка and
-  🆓 Халява) or of the catalog (🎮 Плойка) on the PlayStation Blog is one; its games come to the Ukrainian store on
-  the first or the third Tuesday of their month. The games leaving the Extra and Deluxe catalog are another, from the
+- **➕ PS Plus: «прийдуть» and «покинуть» are two stories,** and its category's alone: 🎮 Плойка and 🆓 Халява
+  hear neither. The announcement of the monthly games or of the catalog on the PlayStation Blog is one; its games
+  come to the Ukrainian store on the first or the third Tuesday of their month. The games leaving the Extra and Deluxe catalog are another, from the
   Ukrainian store's own list, with the day they leave on. Each is the most wanted news there is: it is written as
   soon as the blog or the store has it, without waiting for the press, and goes like a stream — past the chat's
   limits, first in its queue, ringing even for a restrained crow — at the chat's next turn, out of its quiet hours.
@@ -326,8 +326,8 @@ with a competitor: the roster is the labs' models.
   rings, is outside the limits, and goes only to a chat that heard the story; one due during the quiet hours
   waits for their end until its games are gone.
 - **The freebies:** the Epic Games Store's giveaway of the week — its games, their prices in the Ukrainian store,
-  the next week's games — GamerPower's giveaways of the stores the chat uses, worth ten dollars or more, the
-  monthly games of PS Plus Essential and the games new to Game Pass.
+  the next week's games — GamerPower's giveaways of the stores the chat uses, worth ten dollars or more, and the
+  games new to Game Pass.
 - **🟩 Бокс** hears Pure Xbox, Xbox Wire and Game Pass's own lists: the games new to it (🟩 Бокс and 🆓 Халява)
   and those leaving it soon are a story each, the batch of games that came or go together; **🖥 Пекарня** — PC
   Gamer, Rock Paper Shotgun and Steam's own news: its sales and fests, Steam Deck, Steam Machine, Steam Frame,
@@ -439,17 +439,20 @@ the arc is spread over. A chat never gets more than the category's maximum, what
 
 | Category | Menu caption | Importance 3 | Importance 2 | Importance 1 | Max |
 | --- | --- | --- | --- | --- | --- |
-| 🤖 AI Enterprise | флагманські моделі | 12 over 30 h, 3 of them in the first 20 min | 6 over 12 h, 2 in 15 min | 2 over 4 h | 16 |
-| 🦙 AI Homebrew | відкриті моделі | 3 over 8 h | 2 over 4 h | 1 | 3 |
+| 🤖 AI Enterprise | флагманські моделі | 6 over 30 h, 2 of them in the first 20 min | 3 over 12 h | 1 | 8 |
+| 🦙 AI Homebrew | відкриті моделі | 2 over 8 h | 1 | 1 | 2 |
 | 🧑‍💻 Вайбкодинг | Claude Code, Codex, Cursor | 2 over 6 h | 2 over 4 h | 1 | 2 |
-| 🎮 Плойка | PlayStation і PS Plus | 4 over 8 h, 2 in 15 min | 2 over 4 h | 1 | 6 |
-| 🍄 Нінтендо | Nintendo і Switch 2 | 4 over 8 h, 2 in 15 min | 2 over 4 h | 1 | 6 |
+| 🎮 Плойка | PlayStation і State of Play | 1 | 1 | 1 | 2 |
+| ➕ PS Plus | ігри місяця й каталог | 2 over 48 h | 2 over 48 h | 1 | 2 |
+| 🍄 Нінтендо | Nintendo і Switch 2 | 1 | 1 | 1 | 2 |
 | 🆓 Халява | безкоштовні ігри | 2 over 48 h | 2 over 48 h | 1 | 2 |
-| 🌴 GTA VI | відлік до 19.11, from the release — таємниці та пасхалки | 6 over 12 h, 2 in 15 min | 3 over 6 h | 1 | 8 |
-| 🟩 Бокс | Xbox і Game Pass | 4 over 8 h, 2 in 15 min | 2 over 4 h | 1 | 6 |
-| 🖥 Пекарня | ПК і Steam | 4 over 8 h, 2 in 15 min | 2 over 4 h | 1 | 6 |
+| 🌴 GTA VI | відлік до 19.11, from the release — таємниці та пасхалки | 2 over 12 h | 1 | 1 | 3 |
+| 🟩 Бокс | Xbox і Game Pass | 2 over 8 h | 1 | 1 | 3 |
+| 🖥 Пекарня | ПК і Steam | 1 | 1 | 1 | 2 |
 | 📅 Реліз-радар | релізи тижня й переноси | 1 | 1 | 1 | 1 |
 | 🏴‍☠️ Хакерня | взломи, емулятори, хоумбрю | 2 over 6 h | 1 | 1 | 2 |
+
+A platform's news is its opening at «Нагла»; only «Заєбуча» adds a word on it (×1.5).
 
 Every category has its sources ([pipeline.md](pipeline.md#sources)). A story that belongs to several categories
 is heard with the cadence of the subscribed category that allows the most posts. An open model or a release of a coding tool is worth a post or two, not a day of pestering: the

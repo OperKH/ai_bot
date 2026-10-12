@@ -52,7 +52,7 @@ forwards are heard by meaning too (EmbeddingGemma). GIFs come later.
 | [clustering.ts](../../src/crow/clustering.ts) | Which game story an entry belongs to: the link, the headline, the meaning |
 | [quiz.ts](../../src/crow/quiz.ts), [deadlines.ts](../../src/crow/deadlines.ts) | A mega story's quiz, its checks and its place in a chain; the reminder of a story's games that come or go, its checks and its time |
 | [birthday.ts](../../src/crow/birthday.ts) | Her birthday in a chat: its day in the chat's zone, her year counted, the cats' awards, the post, the `birthday` job |
-| [countdowns.ts](../../src/crow/countdowns.ts) | The countdowns to big releases (`COUNTDOWNS`): the Fibonacci marks and their slots in the chat's zone, the line under the arcs, the posts' checks, the `countdowns` job |
+| [countdowns.ts](../../src/crow/countdowns.ts) | The countdowns to big releases (`COUNTDOWNS`): the Fibonacci marks and their slots in the chat's zone, the posts' checks, the `countdowns` job |
 | [releases.ts](../../src/crow/releases.ts) | The release radar: the week's roundups, its rows and its table, her word and its checks, the `releases` job |
 | [sources/gameSources.ts](../../src/crow/sources/gameSources.ts), [freebies.ts](../../src/crow/sources/freebies.ts), [psPlus.ts](../../src/crow/sources/psPlus.ts), [gamePass.ts](../../src/crow/sources/gamePass.ts) | The game sources and their publishers; Epic's and GamerPower's giveaways; the PlayStation Blog's PS Plus with its games and the games leaving the Ukrainian store's catalog; Game Pass's lists |
 | [sources/nintendoStore.ts](../../src/crow/sources/nintendoStore.ts) | The week's Switch 2 and Switch games from Nintendo's European store, for the release radar |
@@ -73,9 +73,9 @@ forwards are heard by meaning too (EmbeddingGemma). GIFs come later.
 | --- | --- | --- |
 | `OPENAI_CROW_MODEL`, `OPENAI_CROW_REASONING_EFFORT` | `gpt-6-luna`, `low` | Sorting the AI and the game news, whether a doubtful entry tells a game story's news, extracting facts, the chat's profile, the crow's store for talks, the week's releases, how a bet ended, the start of a stream in an announcement |
 | `OPENAI_CROW_ARC_MODEL`, `OPENAI_CROW_ARC_REASONING_EFFORT` | `gpt-6.1-sol`, `medium` | Writing the arcs; why sol — [pipeline.md](pipeline.md#models-and-costs) |
-| `OPENAI_CROW_TALK_MODEL`, `OPENAI_CROW_TALK_REASONING_EFFORT` | `gpt-6-luna`, `low` | What the crow says outside the arcs many times a day: her talks, «я ж казала» and the UPD, the bets, the streams |
+| `OPENAI_CROW_TALK_MODEL`, `OPENAI_CROW_TALK_REASONING_EFFORT` | `gpt-6-luna`, `medium` | What the crow says outside the arcs many times a day: her talks, «я ж казала» and the UPD, the bets, the streams |
 | `OPENAI_CROW_TEXT_MODEL`, `OPENAI_CROW_TEXT_REASONING_EFFORT` | `gpt-6.1-sol`, `low` | What the whole chat reads of her outside the arcs, a few calls a day: the morning and weekly digests, the evening goodbye, the jabs, the release radar, the quizzes, the reminders, the countdowns, a bet's outcome, her birthday word |
-| `CROW_TALK_THRESHOLD`, `CROW_FORWARD_THRESHOLD` | 0.35, 0.78 | EmbeddingGemma's similarity from which a talk goes to the gate and a forward brings back a story ([configuration.md](../configuration.md#the-crows-embeddings)) |
+| `CROW_TALK_THRESHOLD`, `CROW_FORWARD_THRESHOLD` | 0.45, 0.78 | EmbeddingGemma's similarity from which a talk goes to the gate and a forward brings back a story ([configuration.md](../configuration.md#the-crows-embeddings)) |
 | `YOUTUBE_API_KEY` | unset — no YouTube | The YouTube Data API, for the start of the streams on the channels ([behavior.md](behavior.md#streams)) |
 | `OPENAI_CROW_DAILY_BUDGET_USD` | 1 | No new arcs past this spending of the pipeline in a UTC day |
 | `TG_OWNER_ID` | unset — nobody | Who hears of a spent budget or an empty balance, and who says how an unclear bet ended |
@@ -85,8 +85,8 @@ forwards are heard by meaning too (EmbeddingGemma). GIFs come later.
 Unit tests cover the crow's decisions, as pure functions next to the code: the gaps of an arc (with a
 seeded generator), which messages a chat gets, quiet hours across the change to winter time, which post
 goes next and within which limits, where «Кш!» is — taken over, left, taken off by the goodbye, and the sending
-that moves it on a fake store — the rich posts, the menu and its callback data, when a job runs, the
-parsing of feeds and sitemaps and of the JSON and Markdown sources (trimmed real ones), which failure is a source down for a while and which is OpenAI's, the batches of the sorting after a failed one, a sure match by meaning only of the same hero, an exclusive category taking a news whole, topic keys, when a story is written, the outline and
+that moves it on a fake store — a post whose send never reached Telegram queued again, later each time, then failed, and a talk not, the rich posts, the menu and its callback data, when a job runs, the
+parsing of feeds and sitemaps and of the JSON and Markdown sources (trimmed real ones), which failure is a source down for a while and which is OpenAI's, a Hugging Face organization feeding AI Homebrew only unless a top lab's, the batches of the sorting after a failed one, a sure match by meaning only of the same hero, an exclusive category taking a news whole, topic keys, when a story is written, the outline and
 the checks of an arc, the roster update, the daily budget; when a chat's morning comes (across midnight and
 the change of time), which news a digest tells, its checks and its one rewrite, the `morning` job on a fake
 store; when a chat's evening comes, the goodbye's checks, the `evening` job — whether a day was worth a
@@ -95,15 +95,16 @@ and «how long ago», a text's cut that keeps an emoji whole; what the profile r
 rewrite, where a jab goes in a chain, whom the jabs may aim at, the `profile` job and the introduction; in a
 talk, which messages are for her, calling her by name, the aliases with endings and typos, the limits and the
 end of a thread, the gate and the answer with its checks and rewrite, and the conversation on a fake store —
-an answer, a call, a chime-in telling a post ahead of its turn, a cat who opted out, the quiet hours; a talk and a
+an answer, a call, a chime-in telling a post ahead of its turn, a cat who opted out, the quiet hours, the nicknames —
+not «котику» nor the cat's own name, and those of the other cats; a talk and a
 forward heard by meaning — above and below the threshold, too few words, with the message a reply answers, a
 post by its facts and the facts' vectors kept by story;
 the game news — which game story an entry belongs to, when a game story is written and how big, the filters of the
 game sources, Epic's and GamerPower's giveaways, PS Plus's days and the games leaving it (through a stubbed
 `fetch`, a stale hash found again in the bundles), the PS Store's hash itself — the query and its fragments from
 the bundles, printed as graphql-js 14 does, against its known hash — the games of a list and their gallery and
-table, Game Pass's lists, the quizzes and the reminders with their checks, the countdowns — the marks and the
-last day's two slots across the change of time, the line under the arcs, the job — the size of the opening, her
+table, Game Pass's lists — and that they are 🟩 Бокс's alone, the quizzes and the reminders with their checks, the countdowns — the marks and the
+last day's two slots across the change of time, the job — the size of the opening, her
 birthday — its day and the 29th of February, the year's figures and rows, the awards and who gets none, the post,
 the word's rewrite, the job once a year — the release radar — its Monday, its rows, its word and its
 job, the platforms of the roundups a release cites added to its row, Nintendo's store read with the roundups, one game for its Switch and Switch 2 versions, the week without it
@@ -127,7 +128,7 @@ bet sent as a poll with its votes, settled and told, the smartest cat, a stream 
 and reminded of, the cleanup — and slice 9's, with the real EmbeddingGemma — the vectors kept, what the chat has
 not heard found closest first, a forward of the story against other news — and the game news' — three publishers'
 entries gathered by meaning, a quiz sent as a quiz poll, a reminder sent after its news and dropped for a chat that
-never heard it, GTA VI's line and a countdown — and the birthday's — the day of her first post, her year in a
+never heard it, a countdown — and the birthday's — the day of her first post, her year in a
 chat with a merged opening, a cat who opted out and a year's cleanup — on a throwaway one. A live run sorted and gathered a day's real feeds
 and wrote a game arc on sol (`data/crow_ab/scripts/games_live_check.mts`). A new model
 for the arcs is checked with the crow's blind A/B in the `update-openai-pricing` skill

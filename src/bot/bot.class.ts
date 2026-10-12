@@ -1,5 +1,5 @@
 import { setTimeout as sleep } from 'node:timers/promises';
-import { Bot as GrammyBot, GrammyError } from 'grammy';
+import { Bot as GrammyBot, GrammyError, HttpError } from 'grammy';
 import type { BotCommand } from 'grammy/types';
 import { DataSource } from 'typeorm';
 import { ApiCallMonitor, installApiTransformers } from './apiTransformers';
@@ -28,6 +28,18 @@ const isTransientTelegramError = (error: unknown) => (error instanceof GrammyErr
 
 /** Telegram refuses the bot the chat: it was kicked, or the user blocked it */
 export const isForbiddenTelegramError = (error: unknown) => error instanceof GrammyError && error.error_code === 403;
+
+/** The network's failures before a byte of a call is sent: no address for Telegram, or no connection to it */
+const UNSENT_CODES = new Set(['ENOTFOUND', 'EAI_AGAIN', 'ECONNREFUSED', 'ENETUNREACH', 'EHOSTUNREACH']);
+
+/**
+ * Why a call never reached Telegram — the network's code — so that it surely did nothing and may be made again; null
+ * for a call that failed later, a timeout or a reset while it waited for the answer, which may still have been done
+ */
+export function unsentTelegramReason(error: unknown): string | null {
+  const code = error instanceof HttpError ? (error.error as { code?: unknown } | undefined)?.code : undefined;
+  return typeof code === 'string' && UNSENT_CODES.has(code) ? code : null;
+}
 
 /**
  * Tells the chat that what the user asked for failed. For `bot.catch` and for

@@ -25,6 +25,12 @@ describe('the game sources', () => {
     assert.equal(accepts('xbox-wire', 'Next Week on XBOX: New Games for September 28 to October 2'), true);
   });
 
+  it('keep a subscription’s lists out of the freebies: Game Pass is 🟩 Бокс’s alone', () => {
+    const categories = (id: string) => GAME_SOURCES.find((s) => s.id === id)?.categories;
+    assert.deepEqual(categories('game-pass-added'), ['xbox']);
+    assert.deepEqual(categories('game-pass-leaving'), ['xbox']);
+  });
+
   it('leave out the press’s guides and a trailer or gameplay post of Gematsu', () => {
     assert.equal(accepts('vgc', 'Fire Emblem Fortune’s Weave: Master location, Missing Master quest guide'), false);
     assert.equal(accepts('vgc', 'Podcast: Halo under Activision'), false);

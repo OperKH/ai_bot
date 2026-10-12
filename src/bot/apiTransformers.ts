@@ -1,7 +1,7 @@
 import { autoRetry } from '@grammyjs/auto-retry';
 import { hydrateFiles } from '@grammyjs/files';
 import { apiThrottler } from '@grammyjs/transformer-throttler';
-import type { Api, Transformer } from 'grammy';
+import { type Api, HttpError, type Transformer } from 'grammy';
 
 /** Give up on a call that keeps hitting 429 after this many retries */
 const MAX_RATE_LIMIT_RETRIES = 5;
@@ -51,10 +51,28 @@ export class ApiCallMonitor {
 }
 
 /**
+ * Takes the bot's token out of a call that failed on the network: node-fetch's error names the request's address,
+ * which carries the token, and every log of it — the runner's, a command's — printed it. The error's code stays.
+ */
+export function hideToken(token: string): Transformer {
+  return async (prev, method, payload, signal) => {
+    try {
+      return await prev(method, payload, signal);
+    } catch (e) {
+      if (e instanceof HttpError && e.error instanceof Error) {
+        e.error.message = e.error.message.replaceAll(token, '<token>');
+        e.error.stack = e.error.stack?.replaceAll(token, '<token>');
+      }
+      throw e;
+    }
+  };
+}
+
+/**
  * Every outgoing call — `ctx.reply`, `ctx.react`, `getFile`, `getUpdates` — goes
  * through these transformers; the ones on `bot.api` apply to `ctx.api` too. A
  * transformer installed later wraps those before it, so a call passes
- * auto-retry → throttle → monitor → files → network.
+ * auto-retry → throttle → monitor → files → token hidden → network.
  *
  * - Sends are paced to Telegram's limits up front, so 429s should be rare.
  * - A 429 is retried after Telegram's `retry_after`, up to 5 times. The wait holds
@@ -65,6 +83,7 @@ export class ApiCallMonitor {
  *   delivered, and a repeat would post it twice.
  */
 export function installApiTransformers(api: Api, token: string, monitor: ApiCallMonitor) {
+  api.config.use(hideToken(token));
   api.config.use(hydrateFiles(token));
   api.config.use(monitor.transformer);
   api.config.use(throttleSends(apiThrottler()));

@@ -12,25 +12,14 @@
  *   node .claude/skills/update-openai-pricing/scripts/score-crow.ts --out <dir>
  */
 
-import { existsSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { argv, stdout } from 'node:process';
 import { parseArgs } from 'node:util';
 
 import { paint, requireNode, runCli, setColor } from './cli.ts';
-import {
-  type ArcRun,
-  type BlindKey,
-  crowVerdict,
-  type Decoded,
-  decodeVerdicts,
-  type JudgeVerdict,
-  type Side,
-  SIDES,
-  tallyRows,
-  tallySide,
-} from './crow-checks.ts';
+import { type ArcRun, crowVerdict, type Side, sideNames, SIDES, tallyRows, tallySide } from './crow-checks.ts';
+import { readJudges } from './crow-run.ts';
 
 const options = {
   out: { type: 'string' },
@@ -73,23 +62,15 @@ async function run(values: Values): Promise<number> {
   const out = values.out;
   if (!out) throw new Error('--out is required: the directory evaluate-crow.ts wrote.');
   const keys = values.keys ?? `${out}-keys`;
-  const { models, arcs } = JSON.parse(await readFile(join(out, 'arcs.json'), 'utf8')) as {
+  const saved = JSON.parse(await readFile(join(out, 'arcs.json'), 'utf8')) as {
     models: Record<Side, string>;
+    efforts: Record<Side, string>;
     arcs: Record<Side, ArcRun[]>;
   };
+  const { arcs } = saved;
+  const models = sideNames(saved.models, saved.efforts);
 
-  const decoded: Decoded[] = [];
-  const notes: string[] = [];
-  for (let judge = 1; existsSync(join(out, `judge_${judge}.json`)); judge++) {
-    const verdicts = JSON.parse(await readFile(join(out, `judge_${judge}.json`), 'utf8')) as JudgeVerdict[];
-    const key = JSON.parse(await readFile(join(keys, `key_${judge}.json`), 'utf8')) as BlindKey;
-    const mine = decodeVerdicts(verdicts, key, judge);
-    decoded.push(...mine);
-    verdicts.forEach((verdict, i) => {
-      if (verdict.notes) notes.push(`judge ${judge}, ${verdict.item} (better: ${mine[i].better}): ${verdict.notes}`);
-    });
-  }
-  if (decoded.length === 0) throw new Error(`no judge_<n>.json in ${out}: the judges have not answered yet.`);
+  const { decoded, notes } = await readJudges(out, keys);
 
   const tallies = { baseline: tallySide(arcs.baseline), candidate: tallySide(arcs.candidate) };
   const verdict = crowVerdict(decoded, tallies);

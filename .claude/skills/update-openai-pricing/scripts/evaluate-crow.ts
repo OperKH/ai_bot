@@ -18,14 +18,14 @@
  *   node .claude/skills/update-openai-pricing/scripts/evaluate-crow.ts --help
  */
 
-import { spawn } from 'node:child_process';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { argv, env, stdout } from 'node:process';
+import { argv, stdout } from 'node:process';
 import { parseArgs } from 'node:util';
 
 import { paint, requireNode, runCli, setColor } from './cli.ts';
-import { type ArcRun, blindFile, type CrowFixture, type Side, SIDES, tallyRows, tallySide } from './crow-checks.ts';
+import { type ArcRun, blindFile, type CrowFixture, type Side, sideNames, SIDES, tallyRows, tallySide } from './crow-checks.ts';
+import { callWorker } from './crow-run.ts';
 import { DEFAULT_PRICING_FILE, findPricingBlock, type ModelPrice } from './pricing.ts';
 
 // resolved against this file rather than the cwd, so moving the skill cannot break the defaults
@@ -139,10 +139,19 @@ async function run(values: Values): Promise<number> {
 
   const job = { runs, roster: fixture.roster, stories: fixture.stories };
   const [baselineRuns, candidateRuns] = await Promise.all(
-    SIDES.map((side) => callWorker(models[side], efforts[side], job, Number(values.timeout))),
+    SIDES.map((side) =>
+      callWorker<ArcRun>(
+        WORKER,
+        { OPENAI_CROW_ARC_MODEL: models[side], OPENAI_CROW_ARC_REASONING_EFFORT: efforts[side] },
+        job,
+        Number(values.timeout),
+        'arcs',
+      ),
+    ),
   );
   const arcs: Record<Side, ArcRun[]> = { baseline: baselineRuns, candidate: candidateRuns };
   const tallies = { baseline: tallySide(arcs.baseline), candidate: tallySide(arcs.candidate) };
+  const names = sideNames(models, efforts);
 
   const out = values.out ?? join('data', 'crow-ab', new Date().toISOString().slice(0, 16).replace(':', '-'));
   const keys = `${out}-keys`;
@@ -153,9 +162,9 @@ async function run(values: Values): Promise<number> {
   await writeFile(
     join(out, 'metrics.md'),
     [
-      `# The crow's A/B: ${baseline} (baseline) against ${candidate}`,
+      `# The crow's A/B: ${names.baseline} (baseline) against ${names.candidate}`,
       '',
-      `| | ${baseline} | ${candidate} |`,
+      `| | ${names.baseline} | ${names.candidate} |`,
       '| --- | --- | --- |',
       ...rows.map(([label, a, b]) => `| ${label} | ${a} | ${b} |`),
       '',
@@ -171,12 +180,12 @@ async function run(values: Values): Promise<number> {
     stdout.write(`${JSON.stringify({ models, efforts, runs, out, keys, tallies }, null, 2)}\n`);
     return 0;
   }
-  const width = Math.max(baseline.length, candidate.length, 12) + 2;
-  const lines = [`${''.padEnd(30)}${paint('bold', baseline.padEnd(width))}${paint('bold', candidate)}`];
+  const width = Math.max(names.baseline.length, names.candidate.length, 12) + 2;
+  const lines = [`${''.padEnd(30)}${paint('bold', names.baseline.padEnd(width))}${paint('bold', names.candidate)}`];
   for (const [label, a, b] of rows) lines.push(`${paint('dim', label.padEnd(30))}${a.padEnd(width)}${b}`);
   for (const side of SIDES) {
     for (const arc of arcs[side].filter((entry) => entry.error)) {
-      lines.push(paint('red', `${models[side]} ${arc.story} #${arc.run}: ${arc.error}`));
+      lines.push(paint('red', `${names[side]} ${arc.story} #${arc.run}: ${arc.error}`));
     }
   }
   lines.push(
@@ -187,39 +196,6 @@ async function run(values: Values): Promise<number> {
   );
   stdout.write(`${lines.join('\n')}\n`);
   return 0;
-}
-
-/** One worker per model, under tsx: the app's modules need it (see crow-worker.ts) */
-function callWorker(model: string, effort: string, job: unknown, timeout: number): Promise<ArcRun[]> {
-  return new Promise((resolve, reject) => {
-    const child = spawn('npx', ['tsx', WORKER], {
-      env: { ...env, OPENAI_CROW_ARC_MODEL: model, OPENAI_CROW_ARC_REASONING_EFFORT: effort },
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
-    const timer = setTimeout(() => child.kill('SIGKILL'), timeout);
-    let out = '';
-    let err = '';
-    child.stdout.setEncoding('utf8').on('data', (chunk: string) => (out += chunk));
-    child.stderr.setEncoding('utf8').on('data', (chunk: string) => (err += chunk));
-    child.on('error', (error) => {
-      clearTimeout(timer);
-      reject(error);
-    });
-    child.on('close', (code) => {
-      clearTimeout(timer);
-      const parsed = out
-        .split('\n')
-        .map((line) => line.trim())
-        .filter((line) => line.startsWith('{"arcs"'))
-        .at(-1);
-      if (!parsed) {
-        reject(new Error(`worker for ${model} exited ${code} without a result: ${err.slice(-400) || out.slice(-400)}`));
-        return;
-      }
-      resolve((JSON.parse(parsed) as { arcs: ArcRun[] }).arcs);
-    });
-    child.stdin.end(JSON.stringify(job));
-  });
 }
 
 await runCli(main);

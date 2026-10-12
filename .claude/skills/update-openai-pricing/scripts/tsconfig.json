@@ -16,5 +16,5 @@
     "verbatimModuleSyntax": true
   },
   "include": ["*.ts"],
-  "exclude": ["crow-worker.ts"]
+  "exclude": ["crow-worker.ts", "crow-talk-worker.ts"]
 }

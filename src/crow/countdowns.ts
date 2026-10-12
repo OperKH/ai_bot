@@ -2,12 +2,10 @@ import { getLinkChatId } from '../bot/telegramLinks';
 import { allowedNumbers, textProblems, writeText } from './arcValidation';
 import { type CategoryId, GTA6_RELEASE_DAY } from './categories';
 import { endOfDay, isQuiet, localDate, localMoment } from './chatClock';
-import type { PostContent } from './crowMessage';
 import type { Priced } from './crowLlm';
 import type { CrowJobDefinition } from './jobs';
 import type { CountdownRequest, TalkResult } from './prompts';
 import type { CrowStore } from './store';
-import { daysLabel } from './words';
 
 const MINUTE = 60_000;
 const DAY = 24 * 60 * MINUTE;
@@ -22,8 +20,8 @@ const NEWS_STORIES = 4;
 const NEWS_FACTS = 4;
 
 /**
- * A game the crow counts down to (docs/crow/behavior.md#countdowns): which chats hear its countdown, which news
- * feed it, and whether her arcs of it end with how long is left. A new countdown is an entry here, not code.
+ * A game the crow counts down to (docs/crow/behavior.md#countdowns): which chats hear its countdown and which news
+ * feed it. A new countdown is an entry here, not code.
  */
 export interface Countdown {
   id: string;
@@ -35,8 +33,6 @@ export interface Countdown {
   categories: CategoryId[];
   /** The stories its posts take a fresh fact from: of these categories, and whose title names it, if `match` is set */
   news: { categories: CategoryId[]; match?: RegExp };
-  /** The posts of the arcs of these categories end with how long is left until the release */
-  lineCategories?: CategoryId[];
 }
 
 export const COUNTDOWNS: readonly Countdown[] = [
@@ -46,7 +42,6 @@ export const COUNTDOWNS: readonly Countdown[] = [
     day: GTA6_RELEASE_DAY,
     categories: ['gta6'],
     news: { categories: ['gta6'] },
-    lineCategories: ['gta6'],
   },
 ];
 
@@ -69,17 +64,6 @@ export function markSlots(days: number): { slot: CountdownRequest['slot']; hour:
 /** How many days are left until a release day in the chat's zone: its calendar days, not 24-hour spans */
 export function daysTo(day: string, now: Date, timeZone: string): number {
   return localDate(now, timeZone).until(Temporal.PlainDate.from(day)).days;
-}
-
-
-/**
- * A post of an arc with the countdown under it — «⏳ До релізу — 52 дні», the days of the chat's zone — while a
- * countdown of its categories is ahead; any other post as it is
- */
-export function withReleaseLine(content: PostContent, categories: readonly string[], now: Date, timeZone: string): PostContent {
-  const countdown = COUNTDOWNS.find((c) => c.lineCategories?.some((id) => categories.includes(id)));
-  const days = countdown ? daysTo(countdown.day, now, timeZone) : 0;
-  return countdown && days > 0 ? { ...content, text: `${content.text}\n⏳ До релізу — ${daysLabel(days)}` } : content;
 }
 
 /** What is wrong with a countdown post: the number of days said before the release, and the arcs' checks */

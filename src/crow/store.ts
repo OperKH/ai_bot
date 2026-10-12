@@ -720,6 +720,11 @@ export class CrowStore {
     });
   }
 
+  /** A post whose sending never reached Telegram is planned again, to go at `notBefore`; its arc waits for it */
+  async putBack(postId: number, notBefore: Date): Promise<void> {
+    await this.posts.update({ id: postId, status: 'sending' }, { status: 'planned', notBefore });
+  }
+
   async markFailed(postId: number, now: Date): Promise<void> {
     await this.dataSource.transaction(async (em) => {
       const post = await em.findOneByOrFail(CrowPost, { id: postId });

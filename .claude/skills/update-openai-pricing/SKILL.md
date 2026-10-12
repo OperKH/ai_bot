@@ -1,6 +1,6 @@
 ---
 name: update-openai-pricing
-description: Refresh the MODEL_PRICING constant in src/services/openai.service.ts from the official OpenAI pricing page. Use when token costs look wrong or stale, when a new model must be priced, or when asked to update/check OpenAI prices. Also A/Bs a new model against the bot's current ones before switching — including the crow's blind A/B, to check that its arcs do not get worse on a new model such as the next sol.
+description: Refresh the MODEL_PRICING constant in src/services/openai.service.ts from the official OpenAI pricing page. Use when token costs look wrong or stale, when a new model must be priced, or when asked to update/check OpenAI prices. Also A/Bs a new model against the bot's current ones before switching — including the crow's blind A/Bs, to check that her arcs or her talks with the chat do not get worse on a new model such as the next sol.
 model: sonnet
 effort: low
 allowed-tools: Bash, Read, Grep, AskUserQuestion, Agent
@@ -263,7 +263,7 @@ the reminders, the countdown, a bet's outcome, the birthday; sol, by a blind A/B
 the crow's own prompt — the cheaper luna lost every judgement — so a lower price is not a reason to move
 it. Never switch any of them as part of this flow; mention that they stayed, and switch one only if the
 user asks (`--variable OPENAI_CROW_MODEL`, `OPENAI_CROW_ARC_MODEL`, `OPENAI_CROW_TEXT_MODEL` or `OPENAI_CROW_TALK_MODEL`) — the arc
-model only after the crow's A/B below.
+model only after the crow's A/B below, the talk model only after her talks' A/B.
 
 ## The crow's arcs — an A/B before `OPENAI_CROW_ARC_MODEL` moves
 
@@ -319,6 +319,54 @@ model's family — a new sol, say `gpt-6.1-sol`. Then offer the A/B as one more 
    Switch with `switch-model.ts --variable OPENAI_CROW_ARC_MODEL --to <model>`, which moves the effort
    too. If the cost per arc changed a lot, say what it does to `OPENAI_CROW_DAILY_BUDGET_USD`: the limit
    was sized at a quarter of a day's spending on 2–3 cents an arc.
+
+## The crow's talks — an A/B before `OPENAI_CROW_TALK_MODEL` moves
+
+Her answers to the cats and her chime-ins run on the talk model, many a day, so it is the cheap one. What a model can
+lose there is not the joke but the judgement: whether to speak at all, whether the cats understand her, whether a
+detail is about the game they speak of, whether she owns up when proven wrong. So moving this variable takes the
+talks' own A/B: the bundled talks ([fixtures/crow-talks.json](fixtures/crow-talks.json)) — real answers and
+chime-ins of hers the chat complained of in October 2026, and a few that went well, the cats' names made up, the
+stories' facts and her store as the bot had them — answered by both models through the bot's own talk code
+(`writeTalk`), then two blind judges. A silence is an answer too, and is judged as one.
+
+**When.** The user asks whether a model would do for her talks, or whether the talks should move to a dearer
+model. Never start it unasked.
+
+1. **Price it**, and quote the estimate in the question:
+
+   ```bash
+   node .claude/skills/update-openai-pricing/scripts/evaluate-crow-talks.ts \
+     --baseline <current OPENAI_CROW_TALK_MODEL> --candidate <model> --runs 2 --dry-run
+   ```
+
+   Offer 2 runs _(recommend: the talks are cheap, and a single run reads one answer as the model's habit)_, never
+   more than 3. The talks run at `medium` (luna `medium` beat its own `low` 38:21 with no fact slips against seven);
+   probe a candidate of another generation for its equivalent rung, and compare one model's rungs with
+   `--candidate <the same model> --candidate-effort <rung>` — the report then names the sides by effort.
+
+2. **Run it** with the same models and `--runs <n>`, `--out data/crow_ab/results/<date>-talks-<model>`. It prints
+   the mechanical table — answers spoken and kept back, failing the checks, opening with «котику», the magpie as an
+   excuse, cost and time — and where it put the blind files; the keys go to `<dir>-keys`, away from the judges.
+
+3. **Judge it blind** as the arcs are: two `Agent` calls in one message, `general-purpose`, `model: opus`, each with
+   [fixtures/crow-talk-judge.md](fixtures/crow-talk-judge.md) filled in for its blind file. Do not read the answers
+   before the judges do.
+
+4. **Score it:**
+
+   ```bash
+   node .claude/skills/update-openai-pricing/scripts/score-crow-talks.ts --out <the run's directory>
+   ```
+
+   It exits 1 when the candidate made her talks worse: the judges preferred the baseline in more than half of the
+   comparisons, or it bent more facts, gave fewer answers fit for the chat, or failed the checks or returned
+   nothing more often. When the candidate is the dearer model, the question is the other way round — is it better
+   enough to pay for: read the wins and the fit answers, not only the exit code.
+
+5. **Report and ask once**, as for the arcs: the score table, the reasons, two or three of the judges' notes, the
+   cost per talk of each model, and that it is evidence over a handful of talks. Switch with
+   `switch-model.ts --variable OPENAI_CROW_TALK_MODEL --to <model>`.
 
 ## Step 7 — verify and report
 
@@ -387,9 +435,10 @@ node --test .claude/skills/update-openai-pricing/scripts/*.test.ts
 npx tsc --noEmit -p .claude/skills/update-openai-pricing/scripts
 ```
 
-`crow-worker.ts` is left out of that `tsc`: it imports the app, whose modules resolve without extensions.
-`npm run typecheck` covers what it calls; the worker itself type-checks with
-`npx tsc --ignoreConfig --noEmit --module preserve --moduleResolution bundler --target esnext --lib esnext,esnext.temporal --types node --strict --skipLibCheck --experimentalDecorators --allowImportingTsExtensions .claude/skills/update-openai-pricing/scripts/crow-worker.ts`.
+`crow-worker.ts` and `crow-talk-worker.ts` are left out of that `tsc`: they import the app, whose modules resolve without extensions.
+`npm run typecheck` covers what they call; each worker type-checks with
+`npx tsc --ignoreConfig --noEmit --module preserve --moduleResolution bundler --target esnext --lib esnext,esnext.temporal --types node --strict --skipLibCheck --experimentalDecorators --allowImportingTsExtensions .claude/skills/update-openai-pricing/scripts/<worker>.ts`
+(one error in `src/services/ai.service.ts` under these flags is the app's, not the worker's: `npm run typecheck` passes).
 
 `scripts/pricing.ts` is pure — parsing plus source rewriting; `scripts/update-pricing.ts` adds arguments, fetching, file
 I/O and the report. Tests run against [fixtures/pricing-page.html](fixtures/pricing-page.html), a trimmed real snapshot

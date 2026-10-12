@@ -4,7 +4,7 @@ import { Command } from './command.class';
 import { BackgroundQueue } from '../backgroundQueue';
 import { AIService } from '../../services/ai.service';
 import type { Embedder } from '../../crow/embeddings';
-import { isForbiddenTelegramError } from '../bot.class';
+import { isForbiddenTelegramError, unsentTelegramReason } from '../bot.class';
 import { OwnerAlerts } from '../ownerAlerts';
 import { timeZonePicker } from './timeZone.command';
 import { zoneLabel } from './timeZones';
@@ -108,6 +108,7 @@ export class CrowCommand extends Command {
           await this.bot.api.editMessageReplyMarkup(chatId, messageId, { reply_markup: { inline_keyboard: [] } });
         },
         isChatGone: isForbiddenTelegramError,
+        unsentReason: unsentTelegramReason,
       },
       this.jobs(llm),
     );

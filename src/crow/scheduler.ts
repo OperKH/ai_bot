@@ -8,7 +8,6 @@ import { getLinkChatId } from '../bot/telegramLinks';
 import { betPoll, betTimes, MIN_BETTING_MS } from './bets';
 import { nextPostGap, type Random } from './cadence';
 import { crowRichMessage, newsLinks, type PostContent } from './crowMessage';
-import { withReleaseLine } from './countdowns';
 import { streamContent } from './events';
 import { dropStoryImage, storyPhoto } from './images';
 import { decide, isLoud, isNews, nextPostTime, POST_KINDS } from './dispatch';
@@ -18,6 +17,12 @@ import type { CrowStore, DueChat } from './store';
 const LOG_PREFIX = '[Crow]';
 /** How often the queue is looked at; the next look waits for the previous one to finish */
 const TICK_MS = 30_000;
+/**
+ * The minutes after which a post whose sending never reached Telegram goes again, the Fibonacci numbers: a minute
+ * first — a network's blip passes in seconds — and later each time, so an outage does not fill the log. Once they are
+ * spent, about an hour and a half of no network, it fails as a post that may have arrived, and its arc goes on.
+ */
+const UNSENT_RETRY_MINUTES: readonly number[] = [1, 1, 2, 3, 5, 8, 13, 21, 34];
 /** A collage of more pictures than this gets too small to see */
 const MAX_PHOTOS = 4;
 /** How the log names a post of each kind */
@@ -101,6 +106,8 @@ export interface CrowSender {
   dropShoo(chatId: number, messageId: number): Promise<void>;
   /** Whether a failed send means the bot can no longer write to the chat */
   isChatGone(error: unknown): boolean;
+  /** Why a failed send never reached Telegram — no address, no connection — so that nothing arrived; null if it may have */
+  unsentReason(error: unknown): string | null;
 }
 
 /**
@@ -118,6 +125,8 @@ export class CrowScheduler {
   private readonly jobQueue = new BackgroundQueue('Crow job');
   /** Jobs waiting in the queue or running, so a slow one is not queued twice */
   private readonly queuedJobs = new Set<string>();
+  /** How many times each post's sending did not reach Telegram, since the bot started */
+  private readonly unsentAttempts = new Map<number, number>();
 
   constructor(
     private readonly store: CrowStore,
@@ -168,6 +177,7 @@ export class CrowScheduler {
     const decision = decide(chat, candidates, sent, now);
     if (decision.skip.length > 0) {
       await this.store.skip(decision.skip, now);
+      for (const skipped of decision.skip) this.unsentAttempts.delete(skipped.postId);
       const calledOff = decision.skip.filter((c) => c.isFirst).length;
       console.log(
         `${LOG_PREFIX} ${decision.skip.length} posts out of date in chat ${getLinkChatId(Number(chat.chatId))} dropped` +
@@ -225,23 +235,22 @@ export class CrowScheduler {
       links,
       ...(event ? streamContent(event, timeZone) : {}),
     };
-    // The arcs of a game counted down to end with how long is left until its release
-    const message = crowRichMessage(
-      post.kind === 'arc' ? withReleaseLine(content, stories[0]?.categories ?? [], now, timeZone) : content,
-    );
+    const message = crowRichMessage(content);
     const loud = isLoud(candidate, chat.boldness, post.kind);
     await this.deliver(
       post,
       () => this.sender.send({ chatId: Number(post.chatId), postId: post.id, kind: post.kind, message, replyToMessageId, loud }),
-      async (delivered) => {
-        for (const [i, fileId] of delivered.photoFileIds.entries()) {
-          const story = pictured[i]?.story;
-          if (story && !story.imageFileId) {
-            await this.store.setImageFileId(story.id, fileId);
-            await dropStoryImage(story.id);
+      {
+        afterSent: async (delivered) => {
+          for (const [i, fileId] of delivered.photoFileIds.entries()) {
+            const story = pictured[i]?.story;
+            if (story && !story.imageFileId) {
+              await this.store.setImageFileId(story.id, fileId);
+              await dropStoryImage(story.id);
+            }
           }
-        }
-        if (post.kind === 'weekly') await this.sendVote(post, delivered.messageId);
+          if (post.kind === 'weekly') await this.sendVote(post, delivered.messageId);
+        },
       },
     );
   }
@@ -271,21 +280,23 @@ export class CrowScheduler {
         pollId = sent.pollId;
         return { messageId: sent.messageId, photoFileIds: [] };
       },
-      (delivered) =>
-        this.store.savePoll({
-          chatId: post.chatId,
-          kind: 'bet',
-          postId: post.id,
-          storyId: story.id,
-          pollId,
-          tgMessageId: delivered.messageId,
-          question: bet.question,
-          options: bet.options,
-          storyIds: [],
-          crowPick: bet.crowPick,
-          closesAt: times.closesAt,
-          resolvesAt: times.resolvesAt,
-        }),
+      {
+        afterSent: (delivered) =>
+          this.store.savePoll({
+            chatId: post.chatId,
+            kind: 'bet',
+            postId: post.id,
+            storyId: story.id,
+            pollId,
+            tgMessageId: delivered.messageId,
+            question: bet.question,
+            options: bet.options,
+            storyIds: [],
+            crowPick: bet.crowPick,
+            closesAt: times.closesAt,
+            resolvesAt: times.resolvesAt,
+          }),
+      },
     );
   }
 
@@ -345,33 +356,42 @@ export class CrowScheduler {
    * to the cat's message. True once Telegram took it.
    */
   async sendTalk(post: CrowPost): Promise<boolean> {
-    return this.deliver(post, () =>
-      this.sender.send({
-        chatId: Number(post.chatId),
-        postId: post.id,
-        kind: post.kind,
-        message: crowRichMessage(ownContent(post)),
-        replyToMessageId: post.replyToMessageId === null ? null : Number(post.replyToMessageId),
-        loud: false,
-      }),
+    return this.deliver(
+      post,
+      () =>
+        this.sender.send({
+          chatId: Number(post.chatId),
+          postId: post.id,
+          kind: post.kind,
+          message: crowRichMessage(ownContent(post)),
+          replyToMessageId: post.replyToMessageId === null ? null : Number(post.replyToMessageId),
+          loud: false,
+        }),
+      // A cat waited for it then: an answer a minute or an outage later would answer nothing
+      { tryAgain: false },
     );
   }
 
   /**
    * Sends a post taken for sending and marks it sent: the chat's next post keeps
-   * the gap after it, and a post with «Кш!» takes the button over. A failure marks
-   * it failed, and a chat the bot cannot write to any more is left. What comes
-   * after the sending — the pictures kept, the vote under a digest — failing
-   * leaves the post sent.
+   * the gap after it, and a post with «Кш!» takes the button over. A send that
+   * never reached Telegram puts the post back in the queue, later each time,
+   * unless `tryAgain` is off: it is dropped there once out of date, and fails
+   * once `UNSENT_RETRY_MINUTES` are spent. Any other failure marks it failed — it may have
+   * arrived, and a duplicate is worse than a gap —
+   * and a chat the bot cannot write to any more is left. What comes after the
+   * sending — the pictures kept, the vote under a digest — failing leaves the
+   * post sent.
    */
   private async deliver(
     post: Pick<CrowPost, 'id' | 'chatId' | 'kind' | 'expiresAt'>,
     send: () => Promise<SentPost>,
-    afterSent?: (sent: SentPost) => Promise<void>,
+    { afterSent, tryAgain = true }: { afterSent?: (sent: SentPost) => Promise<void>; tryAgain?: boolean } = {},
   ): Promise<boolean> {
     const chatId = Number(post.chatId);
     try {
       const sent = await send();
+      this.unsentAttempts.delete(post.id);
       const sentAt = new Date();
       await this.store.markSent(post.id, sent.messageId, sentAt, nextPostTime(post, sentAt, nextPostGap(this.random)));
       await afterSent?.(sent).catch((e) =>
@@ -382,6 +402,19 @@ export class CrowScheduler {
       console.log(`${LOG_PREFIX} ${POST_KINDS[post.kind].name} ${post.id} sent to chat ${getLinkChatId(chatId)}`);
       return true;
     } catch (e) {
+      const unsent = tryAgain ? this.sender.unsentReason(e) : null;
+      const attempts = this.unsentAttempts.get(post.id) ?? 0;
+      const minutes = UNSENT_RETRY_MINUTES[attempts];
+      if (unsent !== null && minutes !== undefined) {
+        this.unsentAttempts.set(post.id, attempts + 1);
+        console.warn(
+          `${LOG_PREFIX} Post ${post.id} did not reach Telegram from chat ${getLinkChatId(chatId)} (${unsent}); ` +
+            `trying again in ${minutes} min`,
+        );
+        await this.store.putBack(post.id, new Date(Date.now() + minutes * 60_000));
+        return false;
+      }
+      this.unsentAttempts.delete(post.id);
       console.error(`${LOG_PREFIX} Post ${post.id} failed in chat ${getLinkChatId(chatId)}:`, e);
       await this.store.markFailed(post.id, new Date());
       if (this.sender.isChatGone(e)) {

@@ -1,7 +1,8 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import type { ApiCallFn, Transformer } from 'grammy';
-import { ApiCallMonitor, isSendMethod, throttleSends } from './apiTransformers';
+import { inspect } from 'node:util';
+import { type ApiCallFn, HttpError, type Transformer } from 'grammy';
+import { ApiCallMonitor, hideToken, isSendMethod, throttleSends } from './apiTransformers';
 
 /** A Bot API that answers every call with `response` and records the methods called */
 const fakeApi = (response: object = { ok: true, result: true }) => {
@@ -84,5 +85,24 @@ describe('ApiCallMonitor', () => {
 
     assert.equal(warn.mock.callCount(), 1);
     assert.match(String(warn.mock.calls[0].arguments[0]), /429 on sendMessage, retry after 7s/);
+  });
+});
+
+describe('hideToken', () => {
+  it('takes the token out of a call failed on the network, and keeps its code', async () => {
+    const token = '123456:SECRET';
+    const reason = Object.assign(
+      new Error(`request to https://api.telegram.org/bot${token}/sendMessage failed, reason: getaddrinfo ENOTFOUND`),
+      { code: 'ENOTFOUND' },
+    );
+    const prev = (async () => {
+      throw new HttpError("Network request for 'sendMessage' failed!", reason);
+    }) as unknown as ApiCallFn;
+    const failure = await hideToken(token)(prev, 'sendMessage', { chat_id: 1, text: 'x' }).catch((e: unknown) => e);
+    assert.ok(failure instanceof HttpError);
+    const logged = inspect(failure);
+    assert.ok(!logged.includes('SECRET'), logged);
+    assert.ok(logged.includes('bot<token>/sendMessage'));
+    assert.equal((failure.error as { code: string }).code, 'ENOTFOUND');
   });
 });

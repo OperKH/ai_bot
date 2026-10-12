@@ -122,7 +122,8 @@ What every command relies on; the detail is in [docs/telegram.md](docs/telegram.
   progress.
 - Sending is paced to Telegram's limits by the throttler, and a 429 is retried after `retry_after`, so the
   code makes no pauses between replies. Nothing else is retried: a send that failed on the network may
-  still have been delivered.
+  still have been delivered — unless it never reached Telegram (`unsentTelegramReason`: no address, no
+  connection), which the crow's queue sends again.
 - Media is downloaded only through `downloadTelegramFile`, since a file link carries the bot token; the
   cloud Bot API serves files up to 20 MB.
 - `bot.catch` logs a failed update and apologises in the chat only for commands and button presses.

@@ -215,7 +215,8 @@ export const GAME_SOURCES: readonly SourceDefinition[] = [
     official: 'microsoft',
     structured: true,
     selfContained: true,
-    categories: ['xbox', 'freebies'],
+    // A game of a subscription is not given away: Game Pass is 🟩 Бокс's alone, as PS Plus is not 🆓 Халява's
+    categories: ['xbox'],
   },
   {
     id: 'game-pass-leaving',

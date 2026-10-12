@@ -67,11 +67,13 @@ const SWEAR = [/^бля/u, /п[іи]зд/u, /ху[йїєяю]/u, /[єї]б[ае�
 export const isSwear = (word: string): boolean => SWEAR.some((re) => re.test(word)) && !EUPHEMISM.test(word);
 /** Images the persona prompt names as worn out by repetition */
 const CRUTCH = /блискучк|гнізд|пір['’]|миск|прожектор|афіш/gu;
-const CAT_OPENING = /^(кот|котик|мурчик|хвостат|киц)/u;
+/** A text opening with how she calls any cat, as `body` leaves it lowercased */
+export const CAT_OPENING = /^(кот|котик|мурчик|хвостат|киц)/u;
 /** A post that opens with a lab or a model reads like a press release */
 const NAME_OPENING = /^(openai|anthropic|google|xai|openrouter|deepseek|meta|claude|gpt|gemini|grok)/u;
 
-const body = (text: string): string => text.replace(/^(?:🐦‍⬛\s*)+/u, '').trim();
+/** The text without her emoji at its start */
+export const body = (text: string): string => text.replace(/^(?:🐦‍⬛\s*)+/u, '').trim();
 const firstWords = (text: string, count: number): string => words(body(text)).slice(0, count).join(' ');
 
 export type ArcMetrics = {
@@ -197,6 +199,15 @@ export function seeded(seed: number): () => number {
 }
 
 export const itemId = (story: string, run: number): string => `${story}#${run}`;
+
+/** How a report names the two sides: by model, and by effort as well when both run one model */
+export function sideNames(
+  models: Readonly<Record<Side, string>>,
+  efforts: Readonly<Record<Side, string>>,
+): Record<Side, string> {
+  if (models.baseline !== models.candidate) return { ...models };
+  return { baseline: `${models.baseline} ${efforts.baseline}`, candidate: `${models.candidate} ${efforts.candidate}` };
+}
 
 function renderArc(run: ArcRun | undefined, label: Label): string[] {
   const lines = [`### Arc ${label}`, ''];
@@ -331,13 +342,26 @@ export type CrowVerdict = {
   reasons: string[];
 };
 
+/** How a verdict's reasons name what was judged: the arcs, or the talks' answers */
+export type VerdictWords = { fit: string; failed: string; empty: string };
+
+const ARC_WORDS: VerdictWords = {
+  fit: 'arcs fit to post as they are',
+  failed: 'openings failing the checks',
+  empty: 'calls with no arc',
+};
+
 /**
  * Whether the candidate would make the crow worse. It must not lose the
  * judges — the baseline preferred in more than half of the comparisons —
- * nor bend more facts, give fewer arcs fit to post, or fail the bot's own
- * checks more often. Evidence over a handful of stories, never a proof.
+ * nor bend more facts, give fewer texts fit for the chat, or fail the bot's own
+ * checks or return nothing more often. Evidence over a handful of stories, never a proof.
  */
-export function crowVerdict(decoded: readonly Decoded[], tallies: Readonly<Record<Side, SideTally>>): CrowVerdict {
+export function crowVerdict(
+  decoded: readonly Decoded[],
+  tallies: Readonly<Record<Side, Pick<SideTally, 'failed' | 'errors'>>>,
+  what: VerdictWords = ARC_WORDS,
+): CrowVerdict {
   const count = (pick: (d: Decoded) => boolean) => decoded.filter(pick).length;
   const wins = { baseline: count((d) => d.better === 'baseline'), candidate: count((d) => d.better === 'candidate') };
   const factErrors = {
@@ -351,13 +375,13 @@ export function crowVerdict(decoded: readonly Decoded[], tallies: Readonly<Recor
   }
   if (factErrors.candidate > factErrors.baseline) reasons.push(`fact errors: ${factErrors.baseline} → ${factErrors.candidate}`);
   if (publishable.candidate < publishable.baseline) {
-    reasons.push(`arcs fit to post as they are: ${publishable.baseline} → ${publishable.candidate}`);
+    reasons.push(`${what.fit}: ${publishable.baseline} → ${publishable.candidate}`);
   }
   if (tallies.candidate.failed > tallies.baseline.failed) {
-    reasons.push(`openings failing the checks: ${tallies.baseline.failed} → ${tallies.candidate.failed}`);
+    reasons.push(`${what.failed}: ${tallies.baseline.failed} → ${tallies.candidate.failed}`);
   }
   if (tallies.candidate.errors > tallies.baseline.errors) {
-    reasons.push(`calls with no arc: ${tallies.baseline.errors} → ${tallies.candidate.errors}`);
+    reasons.push(`${what.empty}: ${tallies.baseline.errors} → ${tallies.candidate.errors}`);
   }
   return {
     comparisons: decoded.length,

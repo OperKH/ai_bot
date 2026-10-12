@@ -30,10 +30,13 @@ Every source is a job that polls it and remembers its entries in `crow_source_it
 - Most sources send no ETag, so a feed is fetched whole and its entries are compared by key; where there
   is one, the request is conditional (`fetchText` in [feed.ts](../../src/crow/sources/feed.ts)).
 - A poll that brought news makes the `pipeline` job due at once.
-- The labs' own channels feed all three AI categories, OpenRouter, Qwen and the Hugging Face organizations 🤖 AI
-  Enterprise and 🦙 AI Homebrew: the sorting says which. The coding tools' changelogs feed 🧑‍💻 Вайбкодинг only, and
-  a source of one category brings that category's news whatever the sorting called it — GPT-6 in Codex's
-  changelog is news of the coding tools.
+- The labs' own channels feed all three AI categories, OpenRouter and Qwen 🤖 AI Enterprise and 🦙 AI Homebrew: the
+  sorting says which. The coding tools' changelogs feed 🧑‍💻 Вайбкодинг only, and a source of one category brings
+  that category's news whatever the sorting called it — GPT-6 in Codex's changelog is news of the coding tools.
+  A Hugging Face organization's repositories are open weights, so it feeds 🦙 AI Homebrew only; a top lab's
+  (`TOP_LABS`: OpenAI, Anthropic, Google, xAI, DeepSeek, Meta) feeds 🤖 AI Enterprise too, since its new flagship
+  is that even with open weights. Sorted, Qwen's image model and NVIDIA's came to a chat that hears only 🤖 AI
+  Enterprise as «a smaller model of a big lab».
 - Claude Code's changelog is not a source of its own: its versions come several times a week with dozens of
   items each. A new command is found in the table of commands — the changelog's «Added `/x`» often names a
   command that existed before — and the rest of the week comes with «What's new».
@@ -112,8 +115,10 @@ The `pipeline` job runs every 2 minutes:
    versions; AI Homebrew — 3 an open model that beats closed ones or fits 12–24 GB with a clear gain, 2 a
    new version of a known family, 1 quantizations and support in llama.cpp, LM Studio, Ollama; Вайбкодинг
    — 3 a new command or a big feature of Claude Code, a change of limits or plans, 2 a notable feature of
-   Codex, Cursor, Gemini CLI, Copilot or the week of Claude Code, 1 trifles. Models of little-known companies,
-   bug-fix releases and models not for text, code, voice or pictures are not relevant.
+   Codex, Cursor, Gemini CLI, Copilot or the week of Claude Code, 1 trifles. An open model is AI Homebrew's
+   whoever made it — a small model of a big lab, an image model — but a top lab's new flagship; AI Enterprise is
+   the closed models and the products. Models of little-known companies, bug-fix releases and models not for
+   text, code, voice or pictures are not relevant.
 2. **Stories.** Entries with the same topic within 72 hours make one story. The topic key drops tiers,
    dates, builds, quantizations and sizes, and glues a name to its version however it was written, so GPT-6
    Sol and Luna are `openai/gpt6`, and Qwen3.9-27B, its 35B-A3B and NVIDIA's FP4 build of it are one story
@@ -146,7 +151,9 @@ A game news has no topic key — ten publishers name it ten ways — so its entr
    homebrew, emulators, leaks of code — not the rumors of games; the categories of the news, several
    for a multiplatform one, kept to those of its source and those some chat hears — but ➕ PS Plus's lists are
    its alone (`exclusive`, `ownCategories`), not 🎮 Плойка's or 🆓 Халява's, even before any chat hears it and as
-   entries join a story; the hero; a title in English of
+   entries join a story; nor is a game of a subscription's catalog a freebie: Game Pass's own lists are 🟩 Бокс's
+   alone by their source, and its games in the press are sorted to the platform — as a freebie, Game Pass brought a
+   chat without 🟩 Бокс eight of its batches and releases in two weeks; the hero; a title in English of
    what happened, in the same words whoever wrote it («Sony raises PS5 prices in Europe»); the kind of event; the
    importance by the category's rubric; rumor or not. GTA VI's rubric turns to its mysteries once it is out: a
    solved mystery the press confirmed is news, a theory is not.
@@ -312,15 +319,15 @@ reasoning mode of GPT-6 Luna, sorted as a new flagship, once took the place of a
 | An arc | `Write Crow Arc` | `gpt-6.1-sol`, `medium` | $0.014–0.036, ≈ $0.02 on average |
 | Its one rewrite, when the checks sent it back | `Rewrite Crow Arc` | the same | about as much again |
 | The crow's store for talks about a story | `Extract Crow Snippets` | `gpt-6-luna`, `low` | ≈ $0.0008 |
-| An answer in a talk, or a chime-in, and their rewrites | `Write Crow Reply`, `Rewrite Crow Reply`, `Write Crow Chime-In`, `Rewrite Crow Chime-In` | `gpt-6-luna`, `low` (`OPENAI_CROW_TALK_MODEL`) | $0.0003–0.0005 a message heard |
+| An answer in a talk, or a chime-in, and their rewrites | `Write Crow Reply`, `Rewrite Crow Reply`, `Write Crow Chime-In`, `Rewrite Crow Chime-In` | `gpt-6-luna`, `medium` (`OPENAI_CROW_TALK_MODEL`) | ≈ $0.0004 a message heard |
 | The jabs of a chat's arc, and their rewrite | `Write Crow Jabs`, `Rewrite Crow Jabs` | `gpt-6.1-sol`, `low` (`OPENAI_CROW_TEXT_MODEL`) | ≈ $0.006 a chat |
 | A chat's profile, once a week | `Build Crow Chat Profile` | `gpt-6-luna`, `low` | $0.001–0.006 |
 | A chat's morning digest | `Write Crow Morning Digest`, `Rewrite Crow Morning Digest` | `gpt-6.1-sol`, `low` (`OPENAI_CROW_TEXT_MODEL`) | ≈ $0.008 |
 | A chat's evening goodbye | `Write Crow Goodbye`, `Rewrite Crow Goodbye` | `gpt-6.1-sol`, `low` (`OPENAI_CROW_TEXT_MODEL`) | ≈ $0.006 |
-| «Я ж казала» to a forward or a link | `Write Crow Told You`, `Rewrite Crow Told You` | `gpt-6-luna`, `low` (`OPENAI_CROW_TALK_MODEL`) | ≈ $0.0002 |
+| «Я ж казала» to a forward or a link | `Write Crow Told You`, `Rewrite Crow Told You` | `gpt-6-luna`, `medium` (`OPENAI_CROW_TALK_MODEL`) | ≈ $0.0002 |
 | The UPD to a rumor that came true, for every chat | `Write Crow Rumor Update`, `Rewrite Crow Rumor Update`, with `Extract Crow Facts` of the vendor's page | `gpt-6-luna`, `low` | ≈ $0.001 |
 | A chat's weekly digest | `Write Crow Weekly Digest`, `Rewrite Crow Weekly Digest` | `gpt-6.1-sol`, `low` (`OPENAI_CROW_TEXT_MODEL`) | ≈ $0.008 |
-| A bet on a story's dated event, or none | `Write Crow Bet`, `Rewrite Crow Bet` | `gpt-6-luna`, `low` (`OPENAI_CROW_TALK_MODEL`) | ≈ $0.0001, ≈ $0.0004 with a bet |
+| A bet on a story's dated event, or none | `Write Crow Bet`, `Rewrite Crow Bet` | `gpt-6-luna`, `medium` (`OPENAI_CROW_TALK_MODEL`) | ≈ $0.0001, ≈ $0.0004 with a bet |
 | How a bet ended, and the crow's word on it | `Resolve Crow Bet` (`OPENAI_CROW_MODEL`, `gpt-6-luna`), `Write Crow Bet Outcome`, `Rewrite Crow Bet Outcome` | `gpt-6.1-sol`, `low` (`OPENAI_CROW_TEXT_MODEL`) | ≈ $0.006 |
 | A stream in an organizer's announcement | `Extract Crow Stream` | `gpt-6-luna`, `low` (`OPENAI_CROW_MODEL`) | ≈ $0.0001 |
 | Sorting the game news, a batch of 25 entries | `Sort Crow Game News` | `gpt-6-luna`, `low` | ≈ $0.002; the 89 fresh entries of a day's saved feeds cost $0.005 |
@@ -331,7 +338,7 @@ reasoning mode of GPT-6 Luna, sorted as a new flagship, once took the place of a
 | A post of a countdown's mark, for every chat | `Write Crow Countdown`, `Rewrite Crow Countdown` | `gpt-6.1-sol`, `low` (`OPENAI_CROW_TEXT_MODEL`) | $0.002–0.007 a mark |
 | The week's releases from the roundups | `Extract Crow Releases` | `gpt-6-luna`, `low` (`OPENAI_CROW_MODEL`) | ≈ $0.0007 a week |
 | The release radar's word, for every chat | `Write Crow Release Radar`, `Rewrite Crow Release Radar` | `gpt-6.1-sol`, `low` (`OPENAI_CROW_TEXT_MODEL`) | ≈ $0.005 a week |
-| The crow's words about a stream, for every chat | `Write Crow Stream`, `Rewrite Crow Stream` | `gpt-6-luna`, `low` (`OPENAI_CROW_TALK_MODEL`) | ≈ $0.0003 |
+| The crow's words about a stream, for every chat | `Write Crow Stream`, `Rewrite Crow Stream` | `gpt-6-luna`, `medium` (`OPENAI_CROW_TALK_MODEL`) | ≈ $0.0003 |
 
 **Why sol for the arcs.** A blind A/B on 6 real AI stories (26.09.2026): luna, sol with the same prompt,
 and sol with a shortened prompt, all at `medium`, on the same facts, outline and memory. Two Opus judges
@@ -346,6 +353,21 @@ gpt-6.1-sol at `medium` and at `low`: gpt-6.1-sol `medium` won 10 of 12 judgemen
 It reasons a third as much (≈ 400 tokens an arc against 1400) and reads its cache at half the price, so an
 arc costs about 30% less. On the texts outside the arcs, both at `low`, gpt-6.1-sol won 39 of 48 judgements
 at the same price and swore more naturally; `low` stays, as `medium` was no better on gpt-6-sol.
+
+**The talks' model.** A blind A/B of her talks (12.10.2026), gpt-6-luna against gpt-6.1-sol, both at `low`, on
+22 real answers and chime-ins of hers from the chat — those the cats complained of and a few that went well —
+two runs each, through `writeTalk` with the prompts that ask her to be understood (the skill's
+`evaluate-crow-talks.ts`). Two Opus judges preferred sol in 40 of 88 judgements and luna in 21, with 27 ties;
+luna told three things her facts did not say — twice a demo tied to the game the cat spoke of, once a denial
+of streaming read as no PC release — sol none, and 83 of sol's answers could go as they were against 79. Both kept quiet on the chime-ins of
+another game's detail and owned up when proven wrong: that is the prompt, not the model. Sol costs about
+14 times as much a call (≈ $0.0035 against $0.00025), about $1–4 a month at the chat's 10–20 talks a day. The
+talks stay on luna: the prompts fixed what the chat complained of on both models, and sol's edge is not worth 14 times.
+The same A/B of luna at `low` against luna at `medium` gave medium as much: 38 judgements to 21, with 29 ties, no
+fact slips against seven — a demo tied to the wrong game, an option of a changelog told as a fix for the cat's
+script, a denial of streaming read as no PC release, the platforms of a split screen as the only ones — and 78
+answers fit against 74. A call costs ≈ $0.0004 against $0.00017 and takes ≈ 7 s against 4, so the talks run at
+`medium`: what the reasoning buys is reading the cat's message and her facts right.
 
 **Why the task comes after the story.** The request ends with ~1k tokens that are the same for every
 story — the task, the hard limits, the check before answering, the format — so the prompt cache, which

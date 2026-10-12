@@ -18,7 +18,7 @@ import type {
 } from './prompts';
 import type { CrowStore, RepliedPost, TalkChat } from './store';
 import { broughtStory, MAX_TOLD_LENGTH, messageUrls, TOLD_WINDOW_MS, type ToldStory, writeTold } from './toldYou';
-import { agoLabel, catName, memoryLine } from './words';
+import { agoLabel, catName, isNickname, keptNickname, memoryLine } from './words';
 import type { MaterialScore } from '../dataSource/vectorSearch';
 import { embedOrNone, enoughWords, FactVectors, type Meaning, talkText } from './embeddings';
 
@@ -252,10 +252,21 @@ export interface WrittenTalk {
   attempts: Attempt[];
 }
 
-/** A nickname as the model gave it, if it is one: a few words of letters, not the cat's name */
+/** A nickname as the model gave it, if it is one: a few words of letters, not the cat's name nor how she calls any cat */
 function cleanNickname(nickname: string | null, name: string): string | null {
   const cleaned = nickname?.replace(/[«»"“”]/g, '').replace(/\s+/g, ' ').trim() ?? '';
-  return NICKNAME.test(cleaned) && cleaned.toLowerCase() !== name.trim().toLowerCase() ? cleaned : null;
+  return NICKNAME.test(cleaned) && isNickname(cleaned, name) ? cleaned : null;
+}
+
+/** The numbers a talk may say: those of the cat's message, of the chat and of what she was given */
+export function talkNumbers(request: ConversationRequest): Set<string> {
+  return allowedNumbers(
+    request.message.text,
+    ...request.thread,
+    ...request.recentChat,
+    ...request.recentPosts,
+    ...request.stories.flatMap((story) => [...story.facts, ...story.details, ...story.planned].map((item) => item.text)),
+  );
 }
 
 /**
@@ -310,6 +321,7 @@ type ConversationStore = Pick<
   | 'chatMessage'
   | 'profile'
   | 'nickname'
+  | 'nicknames'
   | 'setNickname'
   | 'createTalkPost'
   | 'materialScores'
@@ -503,19 +515,26 @@ export class CrowConversation {
       }),
     }));
 
-    const [optedOut, chatLines, memory, thread, profile, nickname] = await Promise.all([
+    const [optedOut, chatLines, memory, thread, profile, nicknames] = await Promise.all([
       this.store.optedOut(message.chatId),
       this.store.chatMessagesBefore(message.chatId, message.messageId, RECENT_CHAT),
       this.store.recentPosts(message.chatId, MEMORY_POSTS),
       post ? this.thread(message.chatId, post) : [],
       this.store.profile(message.chatId),
-      this.store.nickname(message.chatId, message.userId),
+      this.store.nicknames(message.chatId),
     ]);
     // A cat who asked her to leave them alone is out of the profile; the store keeps no nickname of theirs
     const leftAlone = optedOut.has(message.userId);
     const recentChat = chatLines.filter((line) => !optedOut.has(line.userId)).map((line) => `${line.name}: ${line.text}`);
     const recentPosts = memory.map((line) => memoryLine(line, now));
     const catTopics = leftAlone ? [] : (profile?.members.find((member) => member.userId === message.userId)?.topics ?? []);
+    // The other cats she calls by a nickname, by the names the profile and the chat know them by: who her wolf is
+    const names = new Map([...(profile?.members ?? []), ...chatLines].map((cat) => [cat.userId, cat.name]));
+    const nickname = keptNickname(nicknames.get(message.userId), message.name);
+    const chatNicknames = [...nicknames].flatMap(([userId, called]) => {
+      const name = names.get(userId);
+      return userId !== message.userId && name && keptNickname(called, name) ? [`${name} — «${called}»`] : [];
+    });
     const request: ConversationRequest = {
       kind,
       message: { name: message.name, text: message.text },
@@ -525,15 +544,10 @@ export class CrowConversation {
       recentPosts,
       catTopics,
       nickname,
+      chatNicknames,
       maxLength: MAX_TALK_LENGTH,
     };
-    const allowed = allowedNumbers(
-      message.text,
-      ...thread,
-      ...recentChat,
-      ...recentPosts,
-      ...stories.flatMap((story) => [...story.facts, ...story.details, ...story.planned].map((item) => item.text)),
-    );
+    const allowed = talkNumbers(request);
 
     const written = await writeTalk(this.write.talk, request, allowed);
     const costUsd = attemptsCost(written.attempts);
@@ -588,7 +602,7 @@ export class CrowConversation {
       sourceWasFaster: message.forwardedAt !== null && message.forwardedAt < story.sentAt,
       story: { title: story.title, facts: story.facts },
       told: { text: story.text, ago },
-      nickname,
+      nickname: keptNickname(nickname, message.name),
       recentPosts,
       maxLength: MAX_TOLD_LENGTH,
     };

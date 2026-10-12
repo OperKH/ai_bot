@@ -42,7 +42,11 @@ They go through a chain of API transformers on `bot.api`, which apply to `ctx.ap
 
 - `@grammyjs/auto-retry` retries a 429 after Telegram's `retry_after`, up to 5 times. Nothing else is
   retried: a `sendMessage` that failed on the network may still have been delivered. The wait holds the
-  caller's slot, so the whole queue pauses.
+  caller's slot, so the whole queue pauses. Only a call that never reached Telegram — no address for it, no
+  connection (`unsentTelegramReason` in [bot.class.ts](../src/bot/bot.class.ts): `ENOTFOUND`, `EAI_AGAIN`,
+  `ECONNREFUSED`, `ENETUNREACH`, `EHOSTUNREACH`) — surely did nothing; the crow's queue sends such a post again
+  ([architecture.md](crow/architecture.md)). A timeout or a reset is not one of them: the request may have been
+  read. A blip of the server's DNS of twenty seconds once cost a chat the crow's evening goodbye.
 - `@grammyjs/transformer-throttler` paces the methods that post messages (`isSendMethod`: `send*` except
   `sendChatAction`, plus copy/forward) to Telegram's limits: 20 a minute and one a second per group, one a
   second per private chat. Reactions and edits are not paced. This is why the code makes no pauses between
@@ -50,6 +54,9 @@ They go through a chain of API transformers on `bot.api`, which apply to `ctx.ap
 - `ApiCallMonitor` counts the requests that go out, logs `Telegram API: N calls/min (...)` every minute
   while the bot is doing anything, and warns on each 429.
 - `@grammyjs/files` adds `getUrl()` to `getFile` results (see below).
+- `hideToken`, closest to the network, takes the bot's token out of a call that failed on the network:
+  node-fetch's error names the request's address, which carries the token, and the runner's log of a failed
+  `getUpdates` and the crow's of a failed post printed it. The error's code stays, for `unsentTelegramReason`.
 
 ## Errors
 
@@ -121,5 +128,5 @@ places: the transformer setup in [apiTransformers.ts](../src/bot/apiTransformers
   Bot API with a backlog of several chats: the slot limit holds for a whole batch, one chat stays in order,
   and a stop drops what has not started. Its chats are chosen so that each of these breaks the test when
   removed — a single chat would pass without the slots, since `sequentialize` alone keeps it in order.
-- The API transformers (which methods are paced, what is counted) with a fake Bot API, and the file
-  download helper against a local HTTP server.
+- The API transformers (which methods are paced, what is counted) with a fake Bot API, the file
+  download helper against a local HTTP server, and which failed calls never reached Telegram.

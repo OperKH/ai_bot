@@ -203,6 +203,7 @@ const baseRequest: ConversationRequest = {
   recentPosts: [],
   catTopics: [],
   nickname: null,
+  chatNicknames: [],
   maxLength: 400,
 };
 
@@ -236,6 +237,8 @@ describe('writeTalk', () => {
     assert.equal(await nickname('Олег'), null);
     assert.equal(await nickname('агент 007'), null);
     assert.equal(await nickname('дуже довге прізвисько з чотирьох слів'), null);
+    assert.equal(await nickname('котику'), null, 'how she calls any cat');
+    assert.equal(await nickname('Олеже'), null, 'the name in another case');
     assert.equal(await nickname(null), null);
     const quiet = await writeTalk(fakeModel(answer({ shouldReply: false, nickname: 'вовче' })).write, baseRequest, allowed);
     assert.equal(quiet.nickname, null, 'no nickname when she keeps quiet');
@@ -336,6 +339,7 @@ function fakeStore(options: {
     ],
     chatMessage: async () => ({ userId: '42', name: 'Олег', text: 'а він швидкий?' }),
     nickname: async (_chatId: string, userId: string) => nicknames.get(userId) ?? null,
+    nicknames: async () => nicknames,
     // As the store does: a cat who asked to be left alone gets no nickname
     setNickname: async (_chatId: string, userId: string, nickname: string) => {
       if (!options.optedOut?.includes(userId)) nicknames.set(userId, nickname);
@@ -467,6 +471,19 @@ describe('CrowConversation', () => {
     const quiet = fakeModel(answer({ nickname: 'вовче' }));
     await run(conversation(alone.store, quiet).talk, heard({ text: 'ворона, я вовк', replyToMessageId: 1366 }));
     assert.equal(alone.nicknames.size, 0);
+  });
+
+  it('tells her who the other cats she calls by nicknames are, and drops a nickname that is how she calls any cat', async () => {
+    const nicknames = new Map([
+      ['42', 'котику'],
+      ['5', 'вовче'],
+      ['6', 'мурчику'],
+    ]);
+    const { store } = fakeStore({ replied: opusPost, nicknames });
+    const model = fakeModel(answer());
+    await run(conversation(store, model).talk, heard({ text: 'а хто твій вовк?', replyToMessageId: 1366 }));
+    assert.equal(model.requests[0].nickname, null);
+    assert.deepEqual(model.requests[0].chatNicknames, ['Іра — «вовче»']);
   });
 
   it('answers a cat who calls her by name, about the stories the message names or the latest', async () => {

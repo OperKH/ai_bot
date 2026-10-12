@@ -36,6 +36,69 @@ export function catName(
   return firstName?.trim() || username || `кіт ${id}`;
 }
 
+/** How she calls any cat, in any case: «коте», «котику», «мурчику», «хвостатий», «кицю» */
+const CAT_WORD =
+  /^(?:к[оі]т(?:а|е|и|ів|ику|ики|ик|ові|у)?|котя\p{L}*|котей\p{L}*|мурчик\p{L}*|мурк[оа]|хвостат\p{L}*|к[иі]ц\p{L}*|ледащ\p{L}*)$/u;
+
+/** A Latin name in Ukrainian letters, «Nikita» → «нікіта»: the letter pairs first, so that «sh» is not «с» and «г» */
+const LATIN: Record<string, string> = {
+  shch: 'щ',
+  ...Object.fromEntries(
+    ['zh', 'kh', 'ts', 'ch', 'sh', 'yu', 'ya', 'ye', 'yi'].map((pair, i) => [pair, 'жхцчшюяєї'[i]]),
+  ),
+  ...Object.fromEntries([...'abcdefghijklmnopqrstuvwyz'].map((letter, i) => [letter, 'абкдефггійклмнопкрстуввиз'[i]])),
+  x: 'кс',
+};
+/** Its letters, in the order of the map */
+const LATIN_LETTERS = new RegExp(Object.keys(LATIN).join('|'), 'g');
+
+/** A word as a name is compared: Ukrainian letters, the vowels that endings and spellings swap made one */
+function nameLetters(word: string): string {
+  return word
+    .toLowerCase()
+    .replace(LATIN_LETTERS, (latin) => LATIN[latin])
+    .replace(/[іїйиы]/g, 'и')
+    .replace(/[єэё]/g, 'е')
+    .replace(/ґ/g, 'г')
+    .replace(/['’ʼь]/g, '');
+}
+
+/** What a name's case puts after its stem, in `nameLetters`: «Руслан-е», «Нікіт-о», «Сергі-ю», «Сергі-єм», «Андрі-єві» */
+const NAME_ENDING = /^(?:[аеиоуюя]{0,2}м?|[ое]ви)$/;
+/** What a stem's last consonant turns into before an ending: «Олег» → «Олеже», «Ольга» → «Ользі» */
+const ALTERNATIONS: Record<string, string> = { г: 'жз', к: 'чц', х: 'шс' };
+
+/**
+ * Whether a word is the cat's name in some case or alphabet: «Нікіто», «Олеже», «Олю» of «Nikita», «Олег», «Оля» —
+ * its stem and a case's ending, not any word that begins the same: «вовче» is no name of Vova's, «оленю» of Олег's
+ */
+function namesCat(word: string, name: string): boolean {
+  const said = nameLetters(word);
+  return name.split(/\s+/).some((part) => {
+    const letters = nameLetters(part);
+    const stem = letters.replace(/[аеиоуюя]+$/, '');
+    if (stem.length < 2) return said === letters;
+    const last = stem.slice(-1);
+    return [last, ...(ALTERNATIONS[last] ?? '')].some((end) => {
+      const base = stem.slice(0, -1) + end;
+      return said.startsWith(base) && NAME_ENDING.test(said.slice(base.length));
+    });
+  });
+}
+
+/**
+ * Whether a nickname is the cat's own rather than how she calls any cat («котику», «мурчику») or the cat's name in
+ * another case («Нікіто»): kept as nicknames, those stuck to every talk with the cat and pushed out the real ones
+ */
+export function isNickname(nickname: string, name: string): boolean {
+  return !nickname.split(/\s+/).every((word) => CAT_WORD.test(word.toLowerCase()) || namesCat(word, name));
+}
+
+/** A stored nickname as the talks and the jabs use it: one kept before `isNickname` checked it may be none */
+export function keptNickname(nickname: string | null | undefined, name: string): string | null {
+  return nickname && isNickname(nickname, name) ? nickname : null;
+}
+
 /**
  * The text cut to `max` UTF-16 units, without cutting a character of two — an emoji — in half: its lone half is
  * not valid Unicode, and the OpenAI API refuses the whole request with it (400 `invalid_json`)

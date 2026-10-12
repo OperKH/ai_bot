@@ -15,6 +15,7 @@ import {
   isSwear,
   itemId,
   type Side,
+  sideNames,
   tallySide,
 } from './crow-checks.ts';
 
@@ -163,6 +164,14 @@ describe('the verdict', () => {
 
   it('rejects an answer for an item the key does not know', (t: TestContext) => {
     t.assert.throws(() => decodeVerdicts([{ item: 'nope#1', better: 'A' }], key, 2), /unknown item/);
+  });
+});
+
+describe('side names', () => {
+  it('say the effort only when both sides run one model', (t: TestContext) => {
+    const efforts = { baseline: 'low', candidate: 'medium' };
+    t.assert.deepStrictEqual(sideNames({ baseline: 'a', candidate: 'b' }, efforts), { baseline: 'a', candidate: 'b' });
+    t.assert.deepStrictEqual(sideNames({ baseline: 'a', candidate: 'a' }, efforts), { baseline: 'a low', candidate: 'a medium' });
   });
 });
 

@@ -17,7 +17,7 @@ import type { CrowJobDefinition } from './jobs';
 import type { PlannedJab } from './planning';
 import type { JabRequest, JabResult, ProfileResult } from './prompts';
 import type { CrowStore } from './store';
-import { catName, clip, memoryLine } from './words';
+import { catName, clip, keptNickname, memoryLine } from './words';
 
 const LOG_PREFIX = '[Crow]';
 const HOUR = 3_600_000;
@@ -218,7 +218,7 @@ export class JabWriter {
         userId: member.userId,
         name: member.name,
         topics: member.topics,
-        nickname: nicknames.get(member.userId) ?? null,
+        nickname: keptNickname(nicknames.get(member.userId), member.name),
       })),
       count,
       recentPosts,

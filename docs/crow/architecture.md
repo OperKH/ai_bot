@@ -31,13 +31,19 @@ Tables `crow_post` and `crow_job`; every change goes through `CrowStore`.
   cannot stall.
 - **A post goes `planned` → `sending` (committed) → `sent`.** A crash in between leaves it `sending`; the
   next start marks it `unconfirmed` and moves its arc on. The bot cannot know whether it arrived, and a
-  duplicate is worse than a gap.
+  duplicate is worse than a gap. So a failed send is final — but for one that never reached Telegram, no
+  address or no connection ([telegram.md](../telegram.md#outgoing-calls)): that post is `planned` again, its arc
+  waiting for it — after 1, 1, 2, 3, 5, 8, 13, 21 and 34 minutes, the Fibonacci numbers, so an outage does not fill
+  the log — until it goes or is out of date; once they are spent, about an hour and a half of no network, it fails
+  and its arc goes on. The tries are counted in memory, since the bot started. A talk is not tried again: a cat waited for
+  it then.
 
   ```mermaid
   stateDiagram-v2
       [*] --> planned
       planned --> sending: decide() picked it
       sending --> sent
+      sending --> planned: never reached Telegram, later each time
       sending --> failed: the send failed
       sending --> unconfirmed: crash, found on the next start
       planned --> skipped: out of date, or optional over the daily limit
@@ -53,8 +59,8 @@ Tables `crow_post` and `crow_job`; every change goes through `CrowStore`.
       cancelled --> [*]
   ```
 
-  Leaving `planned` or `sending` hands the turn to the next post of the arc: its `notBefore` becomes the
-  moment the previous one was done plus its `gapMs`.
+  Leaving `planned` or `sending` hands the turn to the next post of the arc — but `sending` back to `planned`,
+  which is not done: its `notBefore` becomes the moment the previous one was done plus its `gapMs`.
 - **Not every post is a message of an arc.** A post has a `kind`: `arc`; `jab` — a personal jab in the
   chain of an arc, with its own `text` and the `mention` of its cat; `intro` — the crow telling the chat she
   reads it; `digest` — the morning digest ([behavior.md](behavior.md#the-morning-digest)), a post with its

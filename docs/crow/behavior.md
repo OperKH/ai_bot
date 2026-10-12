@@ -9,7 +9,13 @@ texts are written is in [pipeline.md](pipeline.md).
 lives in `PERSONA_PROMPT` ([prompts.ts](../../src/crow/prompts.ts)); the traits that matter when changing it:
 
 - **The joke is how the fact is told, not a tag after it.** At least half the posts open with her reaction
-  or a jab, and the fact comes inside or after it. Posts are short: 1–3 sentences.
+  or a jab, and the fact comes inside or after it. Posts are short: 1–3 sentences, a fourth when the fact needs it.
+- **A cat who never read the source understands her** (`CLARITY_RULES`, shared by the arcs and the talks): the
+  first sentence names who and what happened, an image explains rather than makes a riddle, a term of a changelog
+  is said in plain words or left out, and clarity wins over the joke. Added after the chat kept asking what she
+  meant: her openings made an abstraction act before naming the news, and a changelog's detail came squeezed
+  into one sentence with a joke — while no text came near its length limit. The posts of an arc come hours apart
+  and are read one by one, so each names the story's hero in its first sentence, not only the opening.
 - **Always on the side of today's hero.** If she praised a competitor before, she switches sides without
   apology; her past verdicts (`stance` of earlier stories) are given to her for that.
 - She calls the members cats (коти, котики, мурчики, хвостаті) — friendly teasing, never insults. Rumours
@@ -131,8 +137,13 @@ says «я ж казала» to it ([below](#i-told-you-so)).
 
 - **Answers.** A cat who replies to a post of hers, or calls her — «ворона» in any case, «Каро», @the bot,
   or «Кара,» opening a message — gets an answer: a reply to their message, silent and without «Кш!», of
-  1–3 short sentences in her voice that mirror the cat's tone. She keeps quiet when the message was not for
-  her (the word in another sense) or is a bare reaction — «ок», «ахах», emoji. At most three talks begun with
+  1–3 sentences in her voice, the point first: the answer, yes or no. She keeps quiet when the message was not for
+  her (the word in another sense) or is a bare reaction — «ок», «ахах», emoji. A question that is not news — what a
+  term means, how to cook something — she answers from common knowledge, without numbers; news she was not given
+  she says she does not know, rather than a stock excuse. She sees only the texts of the messages, so she asks for
+  no link nor proof: a cat who says her news was denied, quotes a source or is plainly right gets her word that she
+  may have been wrong; a snarling cat gets humour, not a quarrel. She calls the cats by name, by
+  nickname or not at all, «котику» now and then only. At most three talks begun with
   one cat in ten minutes — a call, or a reply to a post of her arc — and twelve answers in the chat in an hour.
   A thread of her answers ends after four exchanges with «🐦‍⬛ Все, я полетіла, у мене справи.», and she keeps
   quiet in it after that; its answers are no talks begun, or a quick cat's thread broke off silently at the
@@ -141,7 +152,9 @@ says «я ж казала» to it ([below](#i-told-you-so)).
   aliases: its hero's name and how the chat may call it, with endings and typos («опуса», «anthropik») —
   and she still has something to tell of it, she may join uncalled: a detail of her store, or a post of the
   arc still waiting in the queue, said now. Only with something new for this very message: «the same
-  topic» is no reason, and the model says whether there is one. A chime-in carries «Кш!», keeps the gap
+  topic» is no reason, and the model says whether there is one: the detail must be about the very game or model the
+  cat writes of, and she keeps out of a message that shrugs the news off or of what the chat has already refuted.
+  A chime-in carries «Кш!», keeps the gap
   after her last post as any post does, and comes at most 2 / 4 / 6 times an hour by boldness.
 - **By meaning.** A message that names none of her stories — «5.5 реально швидше пише чи це маркетинг» — is
   heard by its meaning ([embeddings.ts](../../src/crow/embeddings.ts), EmbeddingGemma,
@@ -149,12 +162,13 @@ says «я ж казала» to it ([below](#i-told-you-so)).
   against those of what she may still say of the chat's stories — the details of her store and the waiting
   posts of their arcs, each post by the facts it tells, dry: her posts speak the chat's slang, and on the chat's
   real messages their own texts came close to any chatter (71% of the messages within 0.25, against 30% for the
-  facts). A story with one of them at `CROW_TALK_THRESHOLD` (0.35) or closer goes to the model, which decides as it
+  facts). A story with one of them at `CROW_TALK_THRESHOLD` (0.45) or closer goes to the model, which decides as it
   does for a story named; the details and posts closest to the message come first in its request, named or not. At
   0.35, 2% of the chat's messages of four words or more reach the model (8% at 0.30), and the talks of her news met in the
-  measurement scored 0.36 and up. A message of fewer than four words is not looked for this way: «шо на обід»
-  scored 0.28. Every score is logged with the threshold — «Talk of Олег in chat …, by meaning, threshold 0.35: story
-  12 0.41 → the gate», or «— below it» — to calibrate the threshold on the chat's own talk; the model's word
+  measurement scored 0.36 and up; but in the chat's logs of 6–12 October the chime-ins the gate let through at
+  0.35–0.38 spoke off the point — a detail of a neighbouring story on a shared theme — so the threshold went up to 0.45. A message of fewer than four words is not looked for this way: «шо на обід»
+  scored 0.28. Every score is logged with the threshold — «Talk of Олег in chat …, by meaning, threshold 0.45: story
+  12 0.51 → the gate», or «— below it» — to calibrate the threshold on the chat's own talk; the model's word
   follows in the next line.
 - **Her store** (`Extract Crow Snippets`, `OPENAI_CROW_MODEL`): after a story's arc is written, 6–12
   details of its sources the arc did not tell, dry like the facts, and the aliases of its heroes. A detail
@@ -162,13 +176,17 @@ says «я ж казала» to it ([below](#i-told-you-so)).
   (`consumed`), and the arc goes on without it. A story whose store failed is still named by its hero.
 - **The answer** is one call of the talk model (`Write Crow Reply`, `Write Crow Chime-In`): the cat's
   message and what it answers, the chat's last 25 messages, the stories with their facts, details and
-  waiting posts, what she said in the chat lately, the cat's topics from the profile and the nickname she
-  calls them. Back come whether she speaks, the text, the details and posts it told, the cat's tone (only
+  waiting posts, what she said in the chat lately, the cat's topics from the profile, the nickname she
+  calls them and those of the other cats, so that she knows who her wolf is. Back come whether she speaks, the text, the details and posts it told, the cat's tone (only
   logged for now: the GIFs come later) and how she called the cat when not by name. Checked as an arc message is — every number from what she was given, no time of
   day in digits, no forbidden topics, up to 400 characters — rewritten once, then dropped. The daily
   budget does not count the talks: their own limits hold them.
 - **Nicknames:** a cat who called himself a wolf becomes «вовче» — the name he gave himself, or one she stuck on
-  him, a word or three of letters and not his own name ([CrowNickname](../../src/entity/CrowNickname.entity.ts)).
+  him, a word or three of letters ([CrowNickname](../../src/entity/CrowNickname.entity.ts)). How she calls any cat —
+  «котику», «мурчику» — and the cat's own name in any case or alphabet («Нікіто» of Nikita, «Олю» of Оля) are no
+  nicknames (`isNickname`): kept as such, they stuck to every talk with the cat and pushed out the real ones; one
+  stored before the check is not used. The name is its stem and a case's ending, not any word that begins the same:
+  «вовче» stays Vova's nickname.
   Her next talks with that cat carry it — so do her «я ж казала», which calls him by it instead of his name, and her
   jabs, which add it to his name, the mention that rings him — and the model returns it while she keeps calling him so; a cat she has not
   called so for 30 days is called by name again, and a new nickname takes the old one's place.
@@ -326,10 +344,10 @@ with a competitor: the roster is the labs' models.
   rings, is outside the limits, and goes only to a chat that heard the story; one due during the quiet hours
   waits for their end until its games are gone.
 - **The freebies:** the Epic Games Store's giveaway of the week — its games, their prices in the Ukrainian store,
-  the next week's games — GamerPower's giveaways of the stores the chat uses, worth ten dollars or more, and the
-  games new to Game Pass.
-- **🟩 Бокс** hears Pure Xbox, Xbox Wire and Game Pass's own lists: the games new to it (🟩 Бокс and 🆓 Халява)
-  and those leaving it soon are a story each, the batch of games that came or go together; **🖥 Пекарня** — PC
+  the next week's games — and GamerPower's giveaways of the stores the chat uses, worth ten dollars or more: games
+  to keep. A subscription's catalog is not a giveaway: Game Pass is 🟩 Бокс's, PS Plus is ➕ PS Plus's.
+- **🟩 Бокс** hears Pure Xbox, Xbox Wire and Game Pass's own lists: the games new to it and those leaving it soon
+  are a story each, the batch of games that came or go together, and 🟩 Бокс's alone; **🖥 Пекарня** — PC
   Gamer, Rock Paper Shotgun and Steam's own news: its sales and fests, Steam Deck, Steam Machine, Steam Frame,
   Deadlock, Half-Life; **🏴‍☠️ Хакерня** — GBAtemp, Time Extension and the scene, where one publisher is enough,
   since the press seldom writes of a jailbreak or an emulator: console hacks, homebrew, emulators, leaks of code
@@ -337,9 +355,8 @@ with a competitor: the roster is the labs' models.
   Reddit is one publisher, so a leak reaches a chat once the press takes it up.
 - **📅 Реліз-радар** — a delay or a date of a notable game is a post of its own, from two publishers; the week's
   releases come on Monday ([below](#the-release-radar)).
-- **GTA VI** until its release on 19.11: every post of its arcs ends with «⏳ До релізу — 52 дні», and its
-  countdown goes to every chat that hears it ([below](#countdowns)). From the release on, the hunters' finds of its
-  mysteries on Reddit are told once the press confirms them.
+- **GTA VI** until its release on 19.11: its countdown goes to every chat that hears it ([below](#countdowns)).
+  From the release on, the hunters' finds of its mysteries on Reddit are told once the press confirms them.
 
 ## Countdowns
 
@@ -352,11 +369,11 @@ to the release's calendar day in the chat's zone (`/timezone`, UTC without it). 
 a fresh fact of the game's news of the last two weeks (`Write Crow Countdown`, the text model), written once for
 every chat and checked: the number of days in it (on the last day it may say «завтра»), every other number from its facts, 400 characters at most, one
 rewrite. It is outside the limits; a chat that was quiet at the hour gets it once it is not, the same day. The
-posts of the arcs of the countdown's categories end with how long is left, «⏳ До релізу — 52 дні», until the day.
+arcs of the game do not say how long is left: under every post it was noise, and the countdown's posts say it.
 
 A countdown is an entry of `COUNTDOWNS`, not code: the game as the posts name it, its day, the categories that
 hear it, the stories its posts take facts from (a category and, for a game with no category of its own, a pattern
-of its title) and whether the arcs carry the line. A mark already past when the entry comes is skipped.
+of its title). A mark already past when the entry comes is skipped.
 
 ## The release radar
 

@@ -33,11 +33,11 @@ A new variable gets an entry in `ConfigService` (without a comment — its purpo
 ## The crow's embeddings
 
 EmbeddingGemma's similarities from which the crow acts ([crow/behavior.md](crow/behavior.md#talking-in-the-chat));
-every score she compares is logged with the threshold, «Talk of … by meaning, threshold 0.35: story 12 0.41 → the
+every score she compares is logged with the threshold, «Talk of … by meaning, threshold 0.45: story 12 0.51 → the
 gate», so the values can be tuned on the chat's own messages:
 
 - `CROW_TALK_THRESHOLD`: A message that names none of her stories goes to the model when it is this close to what
-  she may still say of one (default 0.35); the model still decides whether she speaks
+  she may still say of one (default 0.45); the model still decides whether she speaks
 - `CROW_FORWARD_THRESHOLD`: A forwarded post that names none of her stories brings back one she told when it is
   this close to one of its facts (default 0.78); the model still says whether it is the same news
 
@@ -59,7 +59,7 @@ gate», so the values can be tuned on the chat's own messages:
 - `OPENAI_CROW_ARC_REASONING_EFFORT`: Effort for writing arcs (default: medium)
 - `OPENAI_CROW_TALK_MODEL`: The crow's model for the rest outside the arcs (default: gpt-6-luna), many calls a
   day: her talks in the chat and «я ж казала», the UPD to a rumor, the bets and the streams
-- `OPENAI_CROW_TALK_REASONING_EFFORT`: Effort for the talk model (default: low)
+- `OPENAI_CROW_TALK_REASONING_EFFORT`: Effort for the talk model (default: medium)
 - `OPENAI_CROW_TEXT_MODEL`: The crow's model for what the whole chat reads (default: gpt-6.1-sol), a few calls a
   day: the morning and weekly digests, the evening goodbye, the personal jabs, the release radar, the quizzes,
   the reminders of the games that come and go, GTA VI's countdown, a bet's outcome and her birthday word; sol

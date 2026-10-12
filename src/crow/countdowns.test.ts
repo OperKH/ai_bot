@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { allowedNumbers } from './arcValidation';
-import { COUNTDOWN_MARKS, type Countdown, countdownProblems, Countdowns, daysTo, markSlots, withReleaseLine } from './countdowns';
+import { COUNTDOWN_MARKS, type Countdown, countdownProblems, Countdowns, daysTo, markSlots } from './countdowns';
 import type { CountdownRequest } from './prompts';
 import type { EventChat } from './store';
 
@@ -12,7 +12,6 @@ const GTA: Countdown = {
   day: '2026-11-19',
   categories: ['gta6'],
   news: { categories: ['gta6'] },
-  lineCategories: ['gta6'],
 };
 
 describe('the countdown days', () => {
@@ -33,17 +32,6 @@ describe('the countdown days', () => {
       { slot: 'morning', hour: 11, minute: 11 },
       { slot: 'evening', hour: 19, minute: 37 },
     ]);
-  });
-});
-
-describe('withReleaseLine', () => {
-  it('ends an arc post of a counted-down game with the days left in the chat’s zone, and leaves others as they are', () => {
-    const content = { text: '🐦‍⬛ Rockstar показала мапу.' };
-    const now = at('2026-09-27T12:00:00Z');
-    assert.equal(withReleaseLine(content, ['gta6', 'playstation'], now, 'Europe/Kyiv').text, '🐦‍⬛ Rockstar показала мапу.\n⏳ До релізу — 53 дні');
-    assert.equal(withReleaseLine(content, ['gta6'], at('2026-11-18T12:00:00Z'), 'Europe/Kyiv').text.endsWith('— 1 день'), true);
-    assert.equal(withReleaseLine(content, ['playstation'], now, 'Europe/Kyiv'), content);
-    assert.equal(withReleaseLine(content, ['gta6'], at('2026-11-19T12:00:00Z'), 'Europe/Kyiv'), content, 'out already');
   });
 });
 

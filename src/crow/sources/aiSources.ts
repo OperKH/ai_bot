@@ -1,3 +1,4 @@
+import { TOP_LABS } from '../modelKey';
 import type { FeedItem } from './feed';
 import {
   parseClaudeCodeCommands,
@@ -54,7 +55,9 @@ const huggingFace = ({ org, vendor }: { org: string; vendor: string }): SourceDe
   parse: parseHuggingFaceModels,
   intervalMs: 15 * MINUTE,
   official: vendor,
-  categories: ['ai-homebrew', 'ai-enterprise'],
+  // Its repositories are open weights: 🦙 AI Homebrew's, whatever the sorting said, unless a top lab's new flagship —
+  // Qwen's image model and NVIDIA's once came to a chat that hears only 🤖 AI Enterprise
+  categories: Object.hasOwn(TOP_LABS, vendor) ? ['ai-homebrew', 'ai-enterprise'] : ['ai-homebrew'],
 });
 
 /**

@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { agoLabel, clip, dateLabel, dayLabel, plural } from './words';
+import { agoLabel, clip, dateLabel, dayLabel, isNickname, plural } from './words';
 
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
@@ -64,5 +64,54 @@ describe('clip', () => {
     assert.equal(clip('Game out now', 4), 'Game');
     assert.equal(clip('Game out 🎮 now', 11), 'Game out 🎮');
     assert.equal(clip('Game out 🎮 now', 10), 'Game out ');
+  });
+});
+
+describe('isNickname', () => {
+  it('takes a nickname of the cat’s own', () => {
+    assert.equal(isNickname('вовче', 'Ruslan'), true);
+    assert.equal(isNickname('сірий вовче', 'Олег'), true);
+    assert.equal(isNickname('рудий котику', 'Олег'), true, 'a word of its own makes it one');
+  });
+
+  it('takes no word she calls any cat, in any case', () => {
+    for (const word of ['коте', 'котику', 'Мурчику', 'котики', 'хвостатий', 'кицю']) {
+      assert.equal(isNickname(word, 'Ruslan'), false, word);
+    }
+  });
+
+  it('takes no name of the cat, in another case or alphabet', () => {
+    assert.equal(isNickname('Нікіто', 'Nikita'), false);
+    assert.equal(isNickname('Руслане', 'Ruslan'), false);
+    assert.equal(isNickname('Сергію', 'Serhii'), false);
+    assert.equal(isNickname('Толику', 'Tolik'), false);
+    assert.equal(isNickname('Олександре', 'Oleksandr Zhytnyk'), false);
+    assert.equal(isNickname('Олеже', 'Олег'), false);
+    assert.equal(isNickname('Ользі', 'Ольга'), false);
+    assert.equal(isNickname('Василю', 'Василь'), false);
+    assert.equal(isNickname('Сергієм', 'Serhii'), false);
+  });
+
+  it('takes no short name, as it is or in another case', () => {
+    for (const [word, name] of [
+      ['Іра', 'Іра'],
+      ['Ira', 'Ira'],
+      ['Ян', 'Ян'],
+      ['Оля', 'Оля'],
+      ['Олю', 'Оля'],
+      ['Іро', 'Ira'],
+      ['Аню', 'Аня'],
+      ['Юро', 'Юра'],
+      ['Яне', 'Ян'],
+    ]) {
+      assert.equal(isNickname(word, name), false, `${word} of ${name}`);
+    }
+  });
+
+  it('takes a nickname that only begins as the name does', () => {
+    assert.equal(isNickname('вовче', 'Vova'), true);
+    assert.equal(isNickname('оленю', 'Олег'), true);
+    assert.equal(isNickname('маковий', 'Max'), true);
+    assert.equal(isNickname('Ірисочко', 'Іра'), true);
   });
 });

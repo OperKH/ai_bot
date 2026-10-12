@@ -1,3 +1,13 @@
+/** The labs whose new flagship is a mega story, and AI Enterprise's even with open weights: their names, by vendor */
+export const TOP_LABS: Readonly<Record<string, string>> = {
+  openai: 'OpenAI',
+  anthropic: 'Anthropic',
+  google: 'Google',
+  xai: 'xAI',
+  deepseek: 'DeepSeek',
+  meta: 'Meta',
+};
+
 /** Names of a lab that point at one company, so its stories share a key */
 const VENDOR_ALIASES: Record<string, string> = {
   'open-ai': 'openai',

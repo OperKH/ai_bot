@@ -377,6 +377,12 @@ export class CrowPipeline {
         stories.map((story) => ({ ...story, similarity: scores.find((s) => s.storyId === story.storyId)?.similarity ?? null })),
       );
     };
+    /** An entry joins the story it is surely of, or starts one */
+    const attachMatched = (
+      entry: { item: CrowSourceItem; source: SourceDefinition },
+      placement: ItemPlacement,
+      match: Awaited<ReturnType<typeof matchOf>>,
+    ) => attach(entry, placement, match.kind === 'same' ? match.storyId : null, match.kind === 'same' ? match.by : 'new');
 
     for (const [i, entry] of placed.entries()) {
       const { item, verdict, source, categories, lineup } = entry;
@@ -401,7 +407,7 @@ export class CrowPipeline {
         ? await matchOf(item, vectors[i], recent.filter((story) => story.status === 'pending'), verdict.game)
         : await matchOf(item, vectors[i]);
       if (match.kind === 'maybe') doubtful.push({ entry, placement, storyId: match.storyId });
-      else await attach(entry, placement, match.kind === 'same' ? match.storyId : null, match.kind === 'same' ? match.by : 'new');
+      else await attachMatched(entry, placement, match);
     }
 
     // An entry the sorting left out may still be another publisher's word on a news the others made relevant — one
@@ -443,8 +449,19 @@ export class CrowPipeline {
     );
     pay(matchCost);
     for (const [index, { entry, placement, storyId }] of doubtful.entries()) {
-      const same = matched.matches.find((m) => m.index === index)?.same === true;
-      await attach(entry, placement, same ? storyId : null, 'the model');
+      if (matched.matches.find((m) => m.index === index)?.same === true) {
+        await attach(entry, placement, storyId, 'the model');
+        continue;
+      }
+      // Not of that story — but maybe of one a doubtful entry before it began: two publishers' word on one news, both
+      // near an older story, once made two stories of it and two arcs in the chat. A doubt again starts a story of its
+      // own: the model is asked once a run
+      const again = await matchOf(
+        entry.item,
+        placement.embedding,
+        recent.filter((story) => story.storyId !== storyId),
+      );
+      await attachMatched(entry, placement, again);
     }
   }
 

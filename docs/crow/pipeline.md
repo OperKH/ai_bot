@@ -161,7 +161,10 @@ A game news has no topic key — ten publishers name it ten ways — so its entr
    (`entryText`), then finds its story among the game stories of the last 72 hours: the same link settles it,
    then a headline nearly the same (trigrams ≥ 0.6, as pg_trgm counts them), then the meaning — 0.75 or closer
    is the same news; 0.60–0.75 is asked of the model, every doubtful entry of a run in one call (`Match Crow
-   Story`: the same event, not the same game); below that it starts a story of its own. A store's own list is
+   Story`: the same event, not the same game); below that it starts a story of its own. A doubtful entry the
+   model says is not of its story is matched once more among the others, so it finds the story a doubtful entry
+   before it began: Gematsu's and Eurogamer's word on GTA VI's PC release, 0.95 close to each other and both
+   doubtful of an older GTA story, once made two stories and two arcs of one news. A store's own list is
    always a story of its own, and carries its games — each one's title, platforms and picture: the PlayStation
    Blog's post names them in its article («Title | PS5, PS4» and the picture before it), Epic's API and Game Pass's
    lists give them — for the table and the gallery of its opening ([behavior.md](behavior.md#game-news)).

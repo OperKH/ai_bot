@@ -108,7 +108,7 @@ describe('the games leaving PS Plus', () => {
     assert.equal(leavingTime('"serviceBranding":["NONE"],"endTime":null'), null);
   });
 
-  it('makes an entry of each day games leave on, with the two editions of a game in one line; a game of no known day waits', () => {
+  it('makes an entry of each day games leave on, with the two editions of a game in one line', () => {
     const october20 = Date.parse('2026-10-20T08:00:00Z');
     const [entry, ...rest] = leavingEntries(PRODUCTS, {
       [PRODUCTS[0].id]: october20,
@@ -127,7 +127,32 @@ describe('the games leaving PS Plus', () => {
     assert.deepEqual(entry.deadline, { kind: 'ends', at: '2026-10-20T08:00:00.000Z', remindAt: '2026-10-17T08:00:00.000Z' });
     assert.deepEqual(entry.games?.[0], { title: 'SILENT HILL 2', platforms: 'PS5', image: 'https://image.api.playstation.com/background.png?w=1280' });
     assert.equal(entry.games?.length, 3);
-    assert.deepEqual(leavingEntries(PRODUCTS, { [PRODUCTS[0].id]: null }), []);
+  });
+
+  it('takes the catalog’s next rotation, the third Tuesday at 08:00 UTC, for a game whose page names no moment', () => {
+    const october20 = Date.parse('2026-10-20T08:00:00Z');
+    const ends = { [PRODUCTS[0].id]: october20, [PRODUCTS[1].id]: null };
+    const before = leavingEntries(PRODUCTS, ends, new Date('2026-10-14T12:00:00Z'));
+    assert.deepEqual(
+      before.map((entry) => [entry.key, entry.games?.length]),
+      [['ps-plus-leaving:2026-10-20', 3]],
+      'before the rotation the games leave at this month’s',
+    );
+    const after = leavingEntries(PRODUCTS, ends, new Date('2026-10-20T13:00:00Z'));
+    assert.deepEqual(
+      after.map((entry) => [entry.key, entry.games?.length]),
+      [
+        ['ps-plus-leaving:2026-10-20', 1],
+        ['ps-plus-leaving:2026-11-17', 2],
+      ],
+      'after it, at the next month’s; a known moment stays',
+    );
+    assert.deepEqual(after[1].deadline, { kind: 'ends', at: '2026-11-17T08:00:00.000Z', remindAt: '2026-11-14T08:00:00.000Z' });
+    assert.equal(
+      leavingEntries(PRODUCTS, {}, new Date('2026-12-20T09:00:00Z'))[0].key,
+      'ps-plus-leaving:2027-01-19',
+      'December’s rotation passed: January’s of the next year',
+    );
   });
 
   it('reads each new game’s page once, keeping the moments and the hash of the store’s query in the state', async () => {
@@ -149,6 +174,20 @@ describe('the games leaving PS Plus', () => {
     await fetchLastChance(first.state, 0, findHash);
     assert.equal(found, 1, 'the kept hash is taken');
     assert.deepEqual(asked.filter((url) => url.includes('/product/')), [], 'known games are not read again');
+  });
+
+  it('reads the page of a game of no known moment again each poll, and has it leave at the next rotation meanwhile', async () => {
+    const asked = stubFetch((url) =>
+      url.includes('graphql') ? { status: 200, body: GRID } : { status: 200, body: '"serviceBranding":["PS_PLUS"],"endTime":null' },
+    );
+    const first = await fetchLastChance({ hash: 'kept' }, 0, async () => 'kept');
+    const pages = asked.filter((url) => url.includes('/product/')).length;
+    assert.ok(pages > 0);
+    assert.equal(first.items.length, 1);
+    assert.ok(Date.parse(first.items[0].deadline!.at) > Date.now(), 'the next rotation');
+    asked.length = 0;
+    await fetchLastChance(first.state, 0, async () => 'kept');
+    assert.equal(asked.filter((url) => url.includes('/product/')).length, pages, 'a page that named no moment is read again');
   });
 
   it('finds the hash again when the store no longer takes it, and fails when it takes not even that one', async () => {

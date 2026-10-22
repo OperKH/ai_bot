@@ -25,6 +25,12 @@ function nthTuesday(year: number, month: number, nth: number, hour: number): Dat
   return new Date(Date.UTC(year, month, 1 + offset + 7 * (nth - 1), hour));
 }
 
+/** The catalog's next rotation after `now`: the third Tuesday of a month, when its games come and go */
+function nextCatalogRotation(now: Date): Date {
+  const thisMonth = nthTuesday(now.getUTCFullYear(), now.getUTCMonth(), 3, ROTATION_UTC_HOUR);
+  return thisMonth > now ? thisMonth : nthTuesday(now.getUTCFullYear(), now.getUTCMonth() + 1, 3, ROTATION_UTC_HOUR);
+}
+
 /**
  * When the games of a PS Plus announcement come to the Ukrainian store: the monthly games of Essential on the
  * first Tuesday of the month, the catalog of Extra and Deluxe on the third (concept, section 7.2.1). The year is
@@ -153,14 +159,19 @@ const monthDay = (date: Date) => `${MONTHS[date.getUTCMonth()][0].toUpperCase()}
 
 /**
  * The games leaving the catalog as entries: one a day they leave on, since the crow tells of them together.
- * The two editions of a game — PS4 and PS5 are two products — are one line. A game whose day is unknown waits.
+ * The two editions of a game — PS4 and PS5 are two products — are one line. A game whose page names no moment
+ * leaves at the catalog's next rotation: since October 2026 the store's pages give none (`endTime` null).
  */
-export function leavingEntries(products: readonly StoreProduct[], ends: Readonly<Record<string, number | null>>): FeedItem[] {
+export function leavingEntries(
+  products: readonly StoreProduct[],
+  ends: Readonly<Record<string, number | null>>,
+  now = new Date(),
+): FeedItem[] {
+  const rotation = nextCatalogRotation(now);
   const days = new Map<string, { at: Date; games: Map<string, { platforms: Set<string>; image: string | null }> }>();
   for (const product of products) {
     const end = ends[product.id];
-    if (!end) continue;
-    const at = new Date(end);
+    const at = end ? new Date(end) : rotation;
     const day = at.toISOString().slice(0, 10);
     const entry = days.get(day) ?? { at, games: new Map() };
     const name = product.name.replace(/\s+PS4\s*&\s*PS5$/i, '').trim();
@@ -187,7 +198,7 @@ export function leavingEntries(products: readonly StoreProduct[], ends: Readonly
 
 /**
  * The source of the games leaving PS Plus: the list of the Ukrainian store, and for a game new on it the moment
- * it leaves, from its page — a request a second. The job's state keeps the moments, so a page is read once, and
+ * it leaves, from its page — a request a second. The job's state keeps the moments, so a page that named one is read once, and
  * the hash of the store's query: the first poll, and a poll the store no longer takes the hash on, finds the
  * current one in the store's bundles (`psStoreHash.ts`).
  */
